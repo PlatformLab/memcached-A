@@ -1,4 +1,4 @@
-# Memcached
+# Memcached with Arachne
 
 Memcached is a high performance multithreaded event-based key/value cache
 store intended to be used in a distributed system.
@@ -20,7 +20,8 @@ list to ask questions, github issues aren't seen by everyone!
 * libevent, http://www.monkey.org/~provos/libevent/ (libevent-dev)
 * libseccomp, (optional, linux) - enables process restrictions for better
   security.
-
+* Arachne, please follow the instruction in https://github.com/PlatformLab/arachne-all. 
+Then use soft link to link arachne-all under memcached directory.
 ## Environment
 
 Be warned that the -k (mlockall) option to memcached might be
