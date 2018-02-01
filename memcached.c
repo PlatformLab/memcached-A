@@ -17,6 +17,7 @@
 #ifdef EXTSTORE
 #include "storage.h"
 #endif
+#include "CArachneWrapper.h"
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -6494,7 +6495,7 @@ static bool _parse_slab_sizes(char *s, uint32_t *slab_sizes) {
     return true;
 }
 
-int main (int argc, char **argv) {
+static int memcached_main (int argc, char **argv) {
     int c;
     bool lock_memory = false;
     bool do_daemonize = false;
@@ -7755,3 +7756,48 @@ int main (int argc, char **argv) {
 
     return retval;
 }
+
+/*
+ * Wrapper for main function arguments
+ */
+struct argcv {
+    int argc;
+    char** argv;
+};
+typedef struct argcv argcv;
+
+/*
+ * Wrapper for real main function
+ */
+static void* main_wrapper(void *arg) {
+    argcv* mainArgs = (argcv*)arg;
+    int ret = memcached_main(mainArgs->argc, mainArgs->argv);
+    if (ret != 0) {
+        fprintf(stderr, "Non-zero return code: %d\n", ret);
+    }
+    cArachneShutDown();
+    return NULL;
+}
+
+/*
+ * Create main thread
+ */
+int main(int argc, char** argv) {
+    CArachneThreadId threadId;
+    int retval = EXIT_SUCCESS;
+    argcv mainArgs;
+
+    mainArgs.argc = argc;
+    mainArgs.argv = argv;
+
+    cArachneInit(&argc, (const char**)argv);
+    if (cArachneCreateThread(&threadId, main_wrapper, (void*)&mainArgs) == -1) {
+        fprintf(stderr, "Failed to create Arachne thread!\n");
+        retval = EXIT_FAILURE;
+    } else {
+        cArachneWaitForTermination();
+    }
+
+    return retval;
+}
+
