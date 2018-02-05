@@ -6502,7 +6502,32 @@ static bool _parse_slab_sizes(char *s, uint32_t *slab_sizes) {
     return true;
 }
 
-static int memcached_main (int argc, char **argv) {
+/* Enter memcached main dispatch event loop */
+static int memcached_main () {
+    int retval = EXIT_SUCCESS;
+    if (event_base_loop(main_base, 0) != 0) {
+        retval = EXIT_FAILURE;
+    }
+    return retval;
+}
+
+
+/*
+ * Wrapper for real main function
+ */
+static void* main_wrapper(void *arg) {
+    int ret = memcached_main();
+    if (ret != 0) {
+        fprintf(stderr, "Non-zero return code: %d\n", ret);
+    }
+    cArachneShutDown();
+    return NULL;
+}
+
+/*
+ * Create main thread
+ */
+int main(int argc, char** argv) {
     int c;
     bool lock_memory = false;
     bool do_daemonize = false;
@@ -7752,9 +7777,15 @@ static int memcached_main (int argc, char **argv) {
     /* Initialize the uriencode lookup table. */
     uriencode_init();
 
-    /* enter the event loop */
-    if (event_base_loop(main_base, 0) != 0) {
+    /* Start main dispatch thread */
+    CArachneThreadId threadId;
+
+    cArachneInit(&argc, (const char**)argv);
+    if (cArachneCreateThread(&threadId, main_wrapper, NULL) == -1) {
+        fprintf(stderr, "Failed to create Arachne thread!\n");
         retval = EXIT_FAILURE;
+    } else {
+        cArachneWaitForTermination();
     }
 
     stop_assoc_maintenance_thread();
@@ -7772,50 +7803,6 @@ static int memcached_main (int argc, char **argv) {
 
     /* cleanup base */
     event_base_free(main_base);
-
-    return retval;
-}
-
-/*
- * Wrapper for main function arguments
- */
-struct argcv {
-    int argc;
-    char** argv;
-};
-typedef struct argcv argcv;
-
-/*
- * Wrapper for real main function
- */
-static void* main_wrapper(void *arg) {
-    argcv* mainArgs = (argcv*)arg;
-    int ret = memcached_main(mainArgs->argc, mainArgs->argv);
-    if (ret != 0) {
-        fprintf(stderr, "Non-zero return code: %d\n", ret);
-    }
-    cArachneShutDown();
-    return NULL;
-}
-
-/*
- * Create main thread
- */
-int main(int argc, char** argv) {
-    CArachneThreadId threadId;
-    int retval = EXIT_SUCCESS;
-    argcv mainArgs;
-
-    mainArgs.argc = argc;
-    mainArgs.argv = argv;
-
-    cArachneInit(&argc, (const char**)argv);
-    if (cArachneCreateThread(&threadId, main_wrapper, (void*)&mainArgs) == -1) {
-        fprintf(stderr, "Failed to create Arachne thread!\n");
-        retval = EXIT_FAILURE;
-    } else {
-        cArachneWaitForTermination();
-    }
 
     return retval;
 }
