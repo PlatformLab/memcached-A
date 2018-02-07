@@ -17,7 +17,7 @@
 #ifdef EXTSTORE
 #include "storage.h"
 #endif
-#include "CArachneWrapper.h"
+#include "Arachne/arachne_wrapper.h"
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -71,7 +71,7 @@
 /*
  * forward declarations
  */
-static void drive_machine(conn *c);
+static void* drive_machine(void* vc);
 static int new_socket(struct addrinfo *ai);
 static int try_read_command(conn *c);
 
@@ -235,7 +235,7 @@ static void settings_init(void) {
     settings.socketpath = NULL;       /* by default, not using a unix socket */
     settings.factor = 1.25;
     settings.chunk_size = 48;         /* space for a modest key and value */
-    settings.num_threads = 4;         /* N workers */
+    settings.num_threads = 1;         /* N workers */
     settings.num_threads_per_udp = 0;
     settings.prefix_delimiter = ':';
     settings.detail_enabled = 0;
@@ -625,6 +625,8 @@ conn *conn_new(const int sfd, enum conn_states init_state,
     c->item = 0;
 
     c->noreply = false;
+
+    c->finished = true;
 
     event_set(&c->event, sfd, event_flags, event_handler, (void *)c);
     event_base_set(base, &c->event);
@@ -5143,13 +5145,20 @@ static bool update_event(conn *c, const int new_flags) {
     assert(c != NULL);
 
     struct event_base *base = c->event.ev_base;
-    if (c->ev_flags == new_flags)
-        return true;
+    // XXX: Qian: still need to readd, because we deleted in handler
+    // if ((c->ev_flags == new_flags))
+    //     return true;
+
     if (event_del(&c->event) == -1) return false;
     event_set(&c->event, c->sfd, new_flags, event_handler, (void *)c);
     event_base_set(base, &c->event);
     c->ev_flags = new_flags;
     if (event_add(&c->event, 0) == -1) return false;
+    if (settings.verbose > 0) {
+        fprintf(stderr, "Update_event finished! read: %d, write: %d \n",
+                (new_flags & EV_READ), (new_flags & EV_WRITE));
+    }
+
     return true;
 }
 
@@ -5347,7 +5356,8 @@ static int read_into_chunked_item(conn *c) {
     return total;
 }
 
-static void drive_machine(conn *c) {
+static void* drive_machine(void *vc) {
+    conn* c = (conn*)vc;
     bool stop = false;
     int sfd;
     socklen_t addrlen;
@@ -5367,6 +5377,7 @@ static void drive_machine(conn *c) {
 
         switch(c->state) {
         case conn_listening:
+            // fprintf(stderr, "thread in conn_listening \n");
             addrlen = sizeof(addr);
 #ifdef HAVE_ACCEPT4
             if (use_accept4) {
@@ -5428,7 +5439,7 @@ static void drive_machine(conn *c) {
                 conn_set_state(c, conn_closing);
                 break;
             }
-
+            // c->ev_flags = (EV_READ | EV_PERSIST);
             conn_set_state(c, conn_read);
             stop = true;
             break;
@@ -5478,12 +5489,26 @@ static void drive_machine(conn *c) {
                        hack we should just put in a request to write data,
                        because that should be possible ;-)
                     */
+                    // fprintf(stderr, "nreqs: %d case rbytes\n", nreqs);
+                    c->finished = true;
                     if (!update_event(c, EV_WRITE | EV_PERSIST)) {
                         if (settings.verbose > 0)
                             fprintf(stderr, "Couldn't update event\n");
                         conn_set_state(c, conn_closing);
                         break;
                     }
+                    // c->ev_flags = (EV_WRITE | EV_PERSIST);
+                } 
+                else {
+                    c->finished = true;
+                    // fprintf(stderr, "nreqs: %d case continue\n", nreqs);
+                    if (!update_event(c, EV_READ | EV_PERSIST)) {
+                        if (settings.verbose > 0)
+                            fprintf(stderr, "Couldn't update event\n");
+                        conn_set_state(c, conn_closing);
+                        break;
+                    }
+                    // c->ev_flags = (EV_READ | EV_PERSIST);
                 }
                 stop = true;
             }
@@ -5545,12 +5570,14 @@ static void drive_machine(conn *c) {
             }
 
             if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                c->finished = true;
                 if (!update_event(c, EV_READ | EV_PERSIST)) {
                     if (settings.verbose > 0)
                         fprintf(stderr, "Couldn't update event\n");
                     conn_set_state(c, conn_closing);
                     break;
                 }
+                // c->ev_flags = (EV_READ | EV_PERSIST);
                 stop = true;
                 break;
             }
@@ -5716,16 +5743,38 @@ static void drive_machine(conn *c) {
         }
     }
 
-    return;
+    c->finished = true;
+//    if ((c->state == conn_read) || (c->state == conn_new_cmd)
+//         || (c->state == conn_nread)) {
+//        if (!update_event(c, c->ev_flags)) {
+//            if (settings.verbose > 0)
+//                fprintf(stderr, "Couldn't update event\n");
+//            conn_set_state(c, conn_closing);
+//        }
+//    }
+
+    if (settings.verbose > 0) {
+        fprintf(stderr, "finished thread...state: %d \n", c->state);
+    }
+
+    return NULL;
 }
 
 void event_handler(const int fd, const short which, void *arg) {
     conn *c;
+    int ret;
 
     c = (conn *)arg;
     assert(c != NULL);
 
     c->which = which;
+
+    bool finished = c->finished;
+    int state = c->state;
+//    if (settings.verbose > 0) {
+//        fprintf(stderr, "state: %u, read: %d, write: %d, finished %d \n",
+//            state, (which & EV_READ), (which & EV_WRITE), finished);
+//    }
 
     /* sanity */
     if (fd != c->sfd) {
@@ -5735,7 +5784,51 @@ void event_handler(const int fd, const short which, void *arg) {
         return;
     }
 
-    drive_machine(c);
+    // drive_machine((void*)c);
+    /* Connection dispatcher will run in place */
+    if (state == conn_listening) {
+        drive_machine((void*)c);
+        return;
+    }
+
+    /* If previous batch finished, then process */
+    if (finished) {
+        /* Don't go into the drive machine after closing this connection! */
+        if (state == conn_closed) {
+            return;
+        }
+
+        /* Delete the event to avoid race condition */
+        c->finished = false;
+        if (event_del(&c->event) == -1) {
+           fprintf(stderr, "Failed to delete event! \n");
+        } 
+
+        /* Start Arachne worker thread */
+        // arachne_thread_id arachne_tid;
+        // ret = arachne_thread_create(&arachne_tid, drive_machine, (void*)c);
+        pthread_attr_t  attr;
+        pthread_t thread_id;
+
+        pthread_attr_init(&attr);
+
+        /* Use pthreads */
+        ret = pthread_create(&thread_id, &attr, drive_machine, (void*)c); 
+        while (ret != 0) {
+            if (settings.verbose > 0) {
+                fprintf(stderr, "Failed to create pthread!\n");
+            }
+            // ret = arachne_thread_create(&arachne_tid, drive_machine, (void*)c);
+            usleep(100);
+            ret = pthread_create(&thread_id, &attr, drive_machine, (void*)c);
+
+        }
+        pthread_detach(thread_id);
+        // arachne_thread_join(&arachne_tid);
+    } else {
+        // Reactive! Otherwise, we will lose it.
+        event_active(&c->event, 0, 0);
+    }
 
     /* wait for next event */
     return;
@@ -6498,9 +6591,17 @@ static bool _parse_slab_sizes(char *s, uint32_t *slab_sizes) {
 /* Enter memcached main dispatch event loop */
 static int memcached_main () {
     int retval = EXIT_SUCCESS;
+
     if (event_base_loop(main_base, 0) != 0) {
         retval = EXIT_FAILURE;
     }
+    // while (1) {
+    //     retval = event_base_loop(main_base, EVLOOP_NONBLOCK);
+    //     if (retval != 0) {
+    //         retval = EXIT_FAILURE;
+    //         break;
+    //     }
+    // }
     return retval;
 }
 
@@ -6509,11 +6610,14 @@ static int memcached_main () {
  * Wrapper for real main function
  */
 static void* main_wrapper(void *arg) {
-    int ret = memcached_main();
+    int ret;
+    // ret = arachne_thread_exclusive_core(0);
+    // fprintf(stderr, "Main thread successfully have an exclusive core \n");
+    ret = memcached_main();
     if (ret != 0) {
         fprintf(stderr, "Non-zero return code: %d\n", ret);
     }
-    cArachneShutDown();
+    arachne_shutdown();
     return NULL;
 }
 
@@ -6681,6 +6785,12 @@ int main(int argc, char** argv) {
     /* handle SIGINT and SIGTERM */
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
+
+    /* setup pthread for libevent */
+    evthread_use_pthreads();
+
+    /* Initialize Arachne */
+    arachne_init(&argc, (const char**)argv);
 
     /* init settings */
     settings_init();
@@ -7594,7 +7704,8 @@ int main(int argc, char** argv) {
     }
 
     /* initialize main thread libevent instance */
-    main_base = event_init();
+    // main_base = event_init();
+    main_base = event_base_new();
 
     /* initialize other stuff */
     logger_init();
@@ -7762,15 +7873,16 @@ int main(int argc, char** argv) {
     uriencode_init();
 
     /* Start main dispatch thread */
-    CArachneThreadId threadId;
+    // arachne_thread_id arachne_tid;
 
-    cArachneInit(&argc, (const char**)argv);
-    if (cArachneCreateThread(&threadId, main_wrapper, NULL) == -1) {
-        fprintf(stderr, "Failed to create Arachne thread!\n");
-        retval = EXIT_FAILURE;
-    } else {
-        cArachneWaitForTermination();
-    }
+    // if (arachne_thread_create(&arachne_tid, main_wrapper, NULL) == -1) {
+    //     fprintf(stderr, "Failed to create Arachne thread!\n");
+    //     retval = EXIT_FAILURE;
+    // } else {
+    //     arachne_wait_termination();
+    // }
+    main_wrapper(NULL);
+    arachne_wait_termination();
 
     stop_assoc_maintenance_thread();
 
@@ -7785,6 +7897,9 @@ int main(int argc, char** argv) {
     if (u_socket)
       free(u_socket);
 
+    if (main_base) {
+        event_base_free(main_base);
+    }
     return retval;
 }
 

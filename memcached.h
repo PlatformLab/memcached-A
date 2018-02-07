@@ -14,6 +14,7 @@
 #include <sys/time.h>
 #include <netinet/in.h>
 #include <event.h>
+#include <event2/thread.h>
 #include <netdb.h>
 #include <pthread.h>
 #include <unistd.h>
@@ -29,6 +30,7 @@
 #include "crc32c.h"
 #endif
 
+#include "Arachne/arachne_wrapper.h"
 #include "sasl_defs.h"
 
 /** Maximum length of a key. */
@@ -518,7 +520,7 @@ typedef struct {
 } item_hdr;
 #endif
 typedef struct {
-    pthread_t thread_id;        /* unique ID of this thread */
+    arachne_thread_id thread_id; /* unique ID of this thread */
     struct event_base *base;    /* libevent handle this thread uses */
     struct event notify_event;  /* listen event for notify pipe */
     int notify_receive_fd;      /* receiving end of notify pipe */
@@ -644,6 +646,9 @@ struct conn {
     int keylen;
     conn   *next;     /* Used for generating a list of conn structures */
     LIBEVENT_THREAD *thread; /* Pointer to the thread object serving this connection */
+
+    /* For Arachne threads */
+    bool finished;
 };
 
 /* array of conn structures, indexed by file descriptor */
