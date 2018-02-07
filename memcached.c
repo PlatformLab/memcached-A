@@ -17,7 +17,7 @@
 #ifdef EXTSTORE
 #include "storage.h"
 #endif
-#include "CArachneWrapper.h"
+#include "Arachne/arachne_wrapper.h"
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -235,7 +235,7 @@ static void settings_init(void) {
     settings.socketpath = NULL;       /* by default, not using a unix socket */
     settings.factor = 1.25;
     settings.chunk_size = 48;         /* space for a modest key and value */
-    settings.num_threads = 4;         /* N workers */
+    settings.num_threads = 1;         /* N workers */
     settings.num_threads_per_udp = 0;
     settings.prefix_delimiter = ':';
     settings.detail_enabled = 0;
@@ -6498,8 +6498,16 @@ static bool _parse_slab_sizes(char *s, uint32_t *slab_sizes) {
 /* Enter memcached main dispatch event loop */
 static int memcached_main () {
     int retval = EXIT_SUCCESS;
-    if (event_base_loop(main_base, 0) != 0) {
-        retval = EXIT_FAILURE;
+
+    // if (event_base_loop(main_base, 0) != 0) {
+    //     retval = EXIT_FAILURE;
+    // }
+    while (1) {
+        retval = event_base_loop(main_base, EVLOOP_NONBLOCK);
+        if (retval != 0) {
+            retval = EXIT_FAILURE;
+            break;
+        }
     }
     return retval;
 }
@@ -6509,11 +6517,18 @@ static int memcached_main () {
  * Wrapper for real main function
  */
 static void* main_wrapper(void *arg) {
-    int ret = memcached_main();
+    int ret;
+
+    ret = arachne_thread_exclusive_core(0);
+    if (ret == 0) {
+        fprintf(stderr, "Cannot be exclusive on core!");
+    }
+
+    ret = memcached_main();
     if (ret != 0) {
         fprintf(stderr, "Non-zero return code: %d\n", ret);
     }
-    cArachneShutDown();
+    arachne_shutdown();
     return NULL;
 }
 
@@ -6681,6 +6696,9 @@ int main(int argc, char** argv) {
     /* handle SIGINT and SIGTERM */
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
+
+    /* Initialize Arachne */
+    arachne_init(&argc, (const char**)argv);
 
     /* init settings */
     settings_init();
@@ -7762,14 +7780,13 @@ int main(int argc, char** argv) {
     uriencode_init();
 
     /* Start main dispatch thread */
-    CArachneThreadId threadId;
+    arachne_thread_id arachne_tid;
 
-    cArachneInit(&argc, (const char**)argv);
-    if (cArachneCreateThread(&threadId, main_wrapper, NULL) == -1) {
+    if (arachne_thread_create(&arachne_tid, main_wrapper, NULL) == -1) {
         fprintf(stderr, "Failed to create Arachne thread!\n");
         retval = EXIT_FAILURE;
     } else {
-        cArachneWaitForTermination();
+        arachne_wait_termination();
     }
 
     stop_assoc_maintenance_thread();

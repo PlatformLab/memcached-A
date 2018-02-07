@@ -6,6 +6,7 @@
 #ifdef EXTSTORE
 #include "storage.h"
 #endif
+#include "Arachne/arachne_wrapper.h"
 #include <assert.h>
 #include <stdio.h>
 #include <errno.h>
@@ -283,14 +284,14 @@ static void cqi_free(CQ_ITEM *item) {
  * Creates a worker thread.
  */
 static void create_worker(void *(*func)(void *), void *arg) {
-    pthread_attr_t  attr;
-    int             ret;
+    // pthread_attr_t  attr;
+    // int             ret;
 
-    pthread_attr_init(&attr);
-
-    if ((ret = pthread_create(&((LIBEVENT_THREAD*)arg)->thread_id, &attr, func, arg)) != 0) {
-        fprintf(stderr, "Can't create thread: %s\n",
-                strerror(ret));
+    /* Use Arachne threads */
+    int ret;
+    ret = arachne_thread_create(&((LIBEVENT_THREAD*)arg)->thread_id, func, arg);
+    if (ret != 0) {
+        fprintf(stderr, "Can't create Arachne thread: %s\n", strerror(ret));
         exit(1);
     }
 }
@@ -373,7 +374,15 @@ static void *worker_libevent(void *arg) {
 
     register_thread_initialized();
 
-    event_base_loop(me->base, 0);
+    // event_base_loop(me->base, 0);
+    int ret;
+    while (1) {
+        ret = event_base_loop(me->base, EVLOOP_NONBLOCK);
+        if (ret != 0) {
+            break;
+        }
+    }
+
     return NULL;
 }
 
@@ -805,4 +814,3 @@ void memcached_thread_init(int nthreads, void *arg) {
     wait_for_thread_registration(nthreads);
     pthread_mutex_unlock(&init_lock);
 }
-
