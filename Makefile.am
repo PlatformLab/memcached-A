@@ -2,9 +2,7 @@ bin_PROGRAMS = memcached
 pkginclude_HEADERS = protocol_binary.h
 noinst_PROGRAMS = memcached-debug sizes testapp timedrun
 
-CPPFLAGS += -Iarachne-all/Arachne/include/Arachne \
-            -Iarachne-all/PerfUtils/include \
-            -Iarachne-all/CoreArbiter/include
+INCLUDES = -Iarachne-all/Arachne/include
 
 BUILT_SOURCES=
 

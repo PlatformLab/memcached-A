@@ -17,7 +17,7 @@
 #ifdef EXTSTORE
 #include "storage.h"
 #endif
-#include "CArachneWrapper.h"
+#include "Arachne/arachne_wrapper.h"
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -235,7 +235,7 @@ static void settings_init(void) {
     settings.socketpath = NULL;       /* by default, not using a unix socket */
     settings.factor = 1.25;
     settings.chunk_size = 48;         /* space for a modest key and value */
-    settings.num_threads = 4;         /* N workers */
+    settings.num_threads = 1;         /* N workers */
     settings.num_threads_per_udp = 0;
     settings.prefix_delimiter = ':';
     settings.detail_enabled = 0;
@@ -6505,8 +6505,17 @@ static bool _parse_slab_sizes(char *s, uint32_t *slab_sizes) {
 /* Enter memcached main dispatch event loop */
 static int memcached_main () {
     int retval = EXIT_SUCCESS;
-    if (event_base_loop(main_base, 0) != 0) {
-        retval = EXIT_FAILURE;
+
+    // if (event_base_loop(main_base, 0) != 0) {
+    //     retval = EXIT_FAILURE;
+    // }
+    while (1) {
+        retval = event_base_loop(main_base, EVLOOP_NONBLOCK);
+        if (retval != 0) {
+            retval = EXIT_FAILURE;
+            break;
+        }
+        arachne_thread_yield();
     }
     return retval;
 }
@@ -6520,7 +6529,7 @@ static void* main_wrapper(void *arg) {
     if (ret != 0) {
         fprintf(stderr, "Non-zero return code: %d\n", ret);
     }
-    cArachneShutDown();
+    arachne_shutdown();
     return NULL;
 }
 
@@ -7396,6 +7405,9 @@ int main(int argc, char** argv) {
         }
     }
 
+    /* Initialize Arachne */
+    arachne_init(&argc, (const char**)argv);
+
     if (settings.item_size_max < 1024) {
         fprintf(stderr, "Item max size cannot be less than 1024 bytes.\n");
         exit(EX_USAGE);
@@ -7778,14 +7790,13 @@ int main(int argc, char** argv) {
     uriencode_init();
 
     /* Start main dispatch thread */
-    CArachneThreadId threadId;
+    arachne_thread_id arachne_tid;
 
-    cArachneInit(&argc, (const char**)argv);
-    if (cArachneCreateThread(&threadId, main_wrapper, NULL) == -1) {
+    if (arachne_thread_create(&arachne_tid, main_wrapper, NULL) == -1) {
         fprintf(stderr, "Failed to create Arachne thread!\n");
         retval = EXIT_FAILURE;
     } else {
-        cArachneWaitForTermination();
+        arachne_wait_termination();
     }
 
     stop_assoc_maintenance_thread();
