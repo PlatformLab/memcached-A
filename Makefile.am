@@ -2,9 +2,7 @@ bin_PROGRAMS = memcached
 pkginclude_HEADERS = protocol_binary.h
 noinst_PROGRAMS = memcached-debug sizes testapp timedrun
 
-CPPFLAGS += -Iarachne-all/Arachne/include/Arachne \
-            -Iarachne-all/PerfUtils/include \
-            -Iarachne-all/CoreArbiter/include
+INCLUDES = -Iarachne-all/Arachne/include
 
 BUILT_SOURCES=
 
@@ -62,7 +60,7 @@ memcached_CPPFLAGS = -DNDEBUG
 memcached_debug_LDADD = @PROFILER_LDFLAGS@
 memcached_debug_CFLAGS = @PROFILER_FLAGS@
 
-memcached_LDADD = -Larachne-all/Arachne/lib -lArachne -Larachne-all/PerfUtils/lib -lPerfUtils -Larachne-all/CoreArbiter/lib -lCoreArbiter -lpcrecpp -lstdc++
+memcached_LDADD = -Larachne-all/Arachne/lib -lArachne -Larachne-all/PerfUtils/lib -lPerfUtils -Larachne-all/CoreArbiter/lib -lCoreArbiter -lpcrecpp -levent_pthreads -lstdc++
 memcached_debug_LDADD += $(memcached_LDADD)
 memcached_DEPENDENCIES =
 memcached_debug_DEPENDENCIES =

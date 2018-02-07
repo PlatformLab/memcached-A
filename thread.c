@@ -6,6 +6,7 @@
 #ifdef EXTSTORE
 #include "storage.h"
 #endif
+#include "Arachne/arachne_wrapper.h"
 #include <assert.h>
 #include <stdio.h>
 #include <errno.h>
@@ -283,14 +284,16 @@ static void cqi_free(CQ_ITEM *item) {
  * Creates a worker thread.
  */
 static void create_worker(void *(*func)(void *), void *arg) {
-    pthread_attr_t  attr;
-    int             ret;
+    // pthread_attr_t  attr;
+    // int             ret;
 
-    pthread_attr_init(&attr);
+    // pthread_attr_init(&attr);
 
-    if ((ret = pthread_create(&((LIBEVENT_THREAD*)arg)->thread_id, &attr, func, arg)) != 0) {
-        fprintf(stderr, "Can't create thread: %s\n",
-                strerror(ret));
+    /* Use Arachne threads */
+    int ret;
+    ret = arachne_thread_create(&((LIBEVENT_THREAD*)arg)->thread_id, func, arg);
+    if (ret != 0) {
+        fprintf(stderr, "Can't create Arachne thread: %s\n", strerror(ret));
         exit(1);
     }
 }
@@ -365,6 +368,9 @@ static void setup_thread(LIBEVENT_THREAD *me) {
  * Worker thread: main event loop
  */
 static void *worker_libevent(void *arg) {
+    int ret;
+    ret = arachne_thread_exclusive_core(0);
+    fprintf(stderr, "Worker Successfully have an exclusive core: %d \n", ret);
     LIBEVENT_THREAD *me = arg;
 
     /* Any per-thread setup can happen here; memcached_thread_init() will block until
@@ -382,9 +388,16 @@ static void *worker_libevent(void *arg) {
 
     register_thread_initialized();
 
-    event_base_loop(me->base, 0);
+    // event_base_loop(me->base, 0);
+    while (1) {
+        ret = event_base_loop(me->base, 0);
+        if (ret != 0) {
+            break;
+        }
+    }
 
     event_base_free(me->base);
+
     return NULL;
 }
 
@@ -764,6 +777,9 @@ void memcached_thread_init(int nthreads, void *arg) {
         power = 15;
     }
 
+    /* XXX Qian: hard coded to 15, a large table */
+    power = 15;
+
     if (power >= hashpower) {
         fprintf(stderr, "Hash table power size (%d) cannot be equal to or less than item lock table (%d)\n", hashpower, power);
         fprintf(stderr, "Item lock table grows with `-t N` (worker threadcount)\n");
@@ -816,4 +832,3 @@ void memcached_thread_init(int nthreads, void *arg) {
     wait_for_thread_registration(nthreads);
     pthread_mutex_unlock(&init_lock);
 }
-
