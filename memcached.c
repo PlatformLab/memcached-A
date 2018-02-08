@@ -6515,7 +6515,6 @@ static int memcached_main () {
             retval = EXIT_FAILURE;
             break;
         }
-        arachne_thread_yield();
     }
     return retval;
 }
@@ -6525,7 +6524,10 @@ static int memcached_main () {
  * Wrapper for real main function
  */
 static void* main_wrapper(void *arg) {
-    int ret = memcached_main();
+    int ret;
+    ret = arachne_thread_exclusive_core(0);
+    fprintf(stderr, "Main thread successfully have an exclusive core \n");
+    ret = memcached_main();
     if (ret != 0) {
         fprintf(stderr, "Non-zero return code: %d\n", ret);
     }
@@ -6697,6 +6699,9 @@ int main(int argc, char** argv) {
     /* handle SIGINT and SIGTERM */
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
+
+    /* Initialize Arachne */
+    arachne_init(&argc, (const char**)argv);
 
     /* init settings */
     settings_init();
@@ -7404,9 +7409,6 @@ int main(int argc, char** argv) {
             return 1;
         }
     }
-
-    /* Initialize Arachne */
-    arachne_init(&argc, (const char**)argv);
 
     if (settings.item_size_max < 1024) {
         fprintf(stderr, "Item max size cannot be less than 1024 bytes.\n");

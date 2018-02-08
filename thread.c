@@ -6,6 +6,7 @@
 #ifdef EXTSTORE
 #include "storage.h"
 #endif
+#include "Arachne/arachne_wrapper.h"
 #include <assert.h>
 #include <stdio.h>
 #include <errno.h>
@@ -288,12 +289,6 @@ static void create_worker(void *(*func)(void *), void *arg) {
 
     // pthread_attr_init(&attr);
 
-    // if ((ret = pthread_create(&((LIBEVENT_THREAD*)arg)->thread_id, &attr, func, arg)) != 0) {
-    //     fprintf(stderr, "Can't create thread: %s\n",
-    //             strerror(ret));
-    //     exit(1);
-    // }
-
     /* Use Arachne threads */
     int ret;
     ret = arachne_thread_create(&((LIBEVENT_THREAD*)arg)->thread_id, func, arg);
@@ -373,6 +368,9 @@ static void setup_thread(LIBEVENT_THREAD *me) {
  * Worker thread: main event loop
  */
 static void *worker_libevent(void *arg) {
+    int ret;
+    ret = arachne_thread_exclusive_core(0);
+    fprintf(stderr, "Worker Successfully have an exclusive core \n");
     LIBEVENT_THREAD *me = arg;
 
     /* Any per-thread setup can happen here; memcached_thread_init() will block until
@@ -391,13 +389,11 @@ static void *worker_libevent(void *arg) {
     register_thread_initialized();
 
     // event_base_loop(me->base, 0);
-    int ret;
     while (1) {
         ret = event_base_loop(me->base, EVLOOP_NONBLOCK);
         if (ret != 0) {
             break;
         }
-        arachne_thread_yield();
     }
 
     return NULL;
@@ -831,4 +827,3 @@ void memcached_thread_init(int nthreads, void *arg) {
     wait_for_thread_registration(nthreads);
     pthread_mutex_unlock(&init_lock);
 }
-
