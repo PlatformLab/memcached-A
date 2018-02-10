@@ -29,6 +29,7 @@
 #include "crc32c.h"
 #endif
 
+#include "Arachne/arachne_wrapper.h"
 #include "sasl_defs.h"
 
 /** Maximum length of a key. */
@@ -518,7 +519,7 @@ typedef struct {
 } item_hdr;
 #endif
 typedef struct {
-    pthread_t thread_id;        /* unique ID of this thread */
+    arachne_thread_id thread_id; /* unique ID of this thread */
     struct event_base *base;    /* libevent handle this thread uses */
     struct event notify_event;  /* listen event for notify pipe */
     int notify_receive_fd;      /* receiving end of notify pipe */
