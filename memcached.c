@@ -408,6 +408,18 @@ static int start_conn_timeout_thread() {
     return 0;
 }
 
+/* Control the order of sending responses.
+ * If we use state drive machine not Arachne thread to handle request,
+ * then it must be the latest request.
+ */
+static inline void conn_wait_reqs_order(conn* c) {
+    while (((c->reqs_curr + 1) % REQS_WINDOW_SIZE) != c->reqs_total) {
+        fprintf(stderr, "Waiting: reqs_curr %d, reqs_total %d\n",
+                c->reqs_curr, c->reqs_total);
+        usleep(10);
+    }
+}
+
 /*
  * Initializes the connections array. We don't actually allocate connection
  * structures until they're needed, so as to avoid wasting memory when the
@@ -533,6 +545,9 @@ conn *conn_new(const int sfd, enum conn_states init_state,
         c->iovsize = IOV_LIST_INITIAL;
         c->msgsize = MSG_LIST_INITIAL;
         c->hdrsize = 0;
+
+        c->reqs_curr = 0;
+        c->reqs_total = 0;
 
         c->rbuf = (char *)malloc((size_t)c->rsize);
         c->wbuf = (char *)malloc((size_t)c->wsize);
@@ -741,6 +756,9 @@ static void conn_cleanup(conn *c) {
     assert(c != NULL);
 
     conn_release_items(c);
+
+    c->reqs_total = 0;
+    c->reqs_curr = 0;
 
     if (c->write_and_free) {
         free(c->write_and_free);
@@ -960,6 +978,7 @@ static int add_iov(conn *c, const void *buf, int len) {
     int leftover;
 
     assert(c != NULL);
+    conn_wait_reqs_order(c); /* Wait for our turn */
 
     if (IS_UDP(c->transport)) {
         do {
@@ -1368,6 +1387,7 @@ static void write_bin_error(conn *c, protocol_binary_response_status err,
 
 /* Form and send a response to a command over the binary protocol */
 static void write_bin_response(conn *c, void *d, int hlen, int keylen, int dlen) {
+
     if (!c->noreply || c->cmd == PROTOCOL_BINARY_CMD_GET ||
         c->cmd == PROTOCOL_BINARY_CMD_GETK) {
         add_bin_header(c, 0, hlen, keylen, dlen);
@@ -1564,6 +1584,7 @@ static void complete_update_bin(conn *c) {
 }
 
 static void write_bin_miss_response(conn *c, char *key, size_t nkey) {
+
     if (nkey) {
         char *ofs = c->wbuf + sizeof(protocol_binary_response_header);
         add_bin_header(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT,
@@ -5461,11 +5482,24 @@ static void drive_machine(conn *c) {
             break;
 
         case conn_new_cmd:
+            /* Check if we have saturated the window size */
+            if (settings.verbose > 2) {
+                fprintf(stderr, "reqs_total %d, reqs_curr %d\n",
+                        c->reqs_total, c->reqs_curr);
+                sleep(1);
+            }
+
+            if (((c->reqs_total + 1) % REQS_WINDOW_SIZE) == c->reqs_curr) {
+                fprintf(stderr, "Saturated the window!! \n");
+                nreqs = 0; /* Stop processing requests */
+            }
+
             /* Only process nreqs at a time to avoid starving other
                connections */
 
             --nreqs;
             if (nreqs >= 0) {
+                c->reqs_total = ((c->reqs_total + 1) % REQS_WINDOW_SIZE);
                 reset_cmd_handler(c);
             } else {
                 pthread_mutex_lock(&c->thread->stats.mutex);
@@ -5660,8 +5694,11 @@ static void drive_machine(conn *c) {
             conn_set_state(c, conn_closing);
             break;
           }
+
             switch (transmit(c)) {
             case TRANSMIT_COMPLETE:
+                /* If complete, then increase the reqs_curr */
+                c->reqs_curr = ((c->reqs_curr + 1) % REQS_WINDOW_SIZE);
                 if (c->state == conn_mwrite) {
                     conn_release_items(c);
                     /* XXX:  I don't know why this wasn't the general case */
@@ -6499,16 +6536,10 @@ static bool _parse_slab_sizes(char *s, uint32_t *slab_sizes) {
 static int memcached_main () {
     int retval = EXIT_SUCCESS;
 
-    // if (event_base_loop(main_base, 0) != 0) {
-    //     retval = EXIT_FAILURE;
-    // }
-    while (1) {
-        retval = event_base_loop(main_base, EVLOOP_NONBLOCK);
-        if (retval != 0) {
-            retval = EXIT_FAILURE;
-            break;
-        }
+    if (event_base_loop(main_base, 0) != 0) {
+        retval = EXIT_FAILURE;
     }
+
     return retval;
 }
 
@@ -6518,11 +6549,6 @@ static int memcached_main () {
  */
 static void* main_wrapper(void *arg) {
     int ret;
-
-    ret = arachne_thread_exclusive_core(0);
-    if (ret == 0) {
-        fprintf(stderr, "Cannot be exclusive on core!");
-    }
 
     ret = memcached_main();
     if (ret != 0) {
@@ -7779,15 +7805,10 @@ int main(int argc, char** argv) {
     /* Initialize the uriencode lookup table. */
     uriencode_init();
 
-    /* Start main dispatch thread */
-    arachne_thread_id arachne_tid;
+    /* Start main dispatch loop */
+    main_wrapper(NULL);
 
-    if (arachne_thread_create(&arachne_tid, main_wrapper, NULL) == -1) {
-        fprintf(stderr, "Failed to create Arachne thread!\n");
-        retval = EXIT_FAILURE;
-    } else {
-        arachne_wait_termination();
-    }
+    arachne_wait_termination();
 
     stop_assoc_maintenance_thread();
 

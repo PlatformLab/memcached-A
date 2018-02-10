@@ -72,6 +72,9 @@
 #define HASHPOWER_DEFAULT 16
 #define HASHPOWER_MAX 32
 
+/* Window size is 1 + maximum distinct requests can be handled for each conn */
+#define REQS_WINDOW_SIZE 21
+
 /*
  * We only reposition items in the LRU queue if they haven't been repositioned
  * in this many seconds. That saves us from churning on frequently-accessed
@@ -519,7 +522,7 @@ typedef struct {
 } item_hdr;
 #endif
 typedef struct {
-    arachne_thread_id thread_id; /* unique ID of this thread */
+    pthread_t thread_id;        /* unique ID of this thread */
     struct event_base *base;    /* libevent handle this thread uses */
     struct event notify_event;  /* listen event for notify pipe */
     int notify_receive_fd;      /* receiving end of notify pipe */
@@ -645,6 +648,11 @@ struct conn {
     int keylen;
     conn   *next;     /* Used for generating a list of conn structures */
     LIBEVENT_THREAD *thread; /* Pointer to the thread object serving this connection */
+
+    /* Arachne integration stuff */
+    /* These variables control the order of response msgs */
+    int reqs_curr;      /* Current finished sending request id */
+    int reqs_total;     /* The id of current incoming requests */
 };
 
 /* array of conn structures, indexed by file descriptor */
