@@ -412,11 +412,27 @@ static int start_conn_timeout_thread() {
  * If we use state drive machine not Arachne thread to handle request,
  * then it must be the latest request.
  */
-static inline void conn_wait_reqs_order(conn* c) {
-    while (((c->reqs_curr + 1) % REQS_WINDOW_SIZE) != c->reqs_total) {
-        fprintf(stderr, "Waiting: reqs_curr %d, reqs_total %d\n",
-                c->reqs_curr, c->reqs_total);
-        usleep(10);
+static inline void conn_wait_reqs_order(conn* c, int req_id) {
+    while (((c->reqs_curr + 1) % REQS_WINDOW_SIZE) != req_id) {
+        if (settings.verbose > 1) {
+            fprintf(stderr, "Waiting: reqs_curr %d, req_id %d, req_total %d \n",
+                c->reqs_curr, req_id, c->reqs_total);
+        }
+        usleep(1);
+    }
+}
+
+/* Control the order of sending responses.
+ * If we use state drive machine not Arachne thread to handle request,
+ * then it must be the latest request.
+ */
+static inline void arachne_conn_wait_reqs_order(conn* c, int req_id) {
+    while (((c->reqs_curr + 1) % REQS_WINDOW_SIZE) != req_id) {
+        if (settings.verbose > 1) {
+            fprintf(stderr, "Waiting: reqs_curr %d, req_id %d, req_total %d \n",
+                c->reqs_curr, req_id, c->reqs_total);
+        }
+        arachne_thread_yield();
     }
 }
 
@@ -838,55 +854,55 @@ static void conn_close(conn *c) {
  * This should only be called in between requests since it can wipe output
  * buffers!
  */
-static void conn_shrink(conn *c) {
-    assert(c != NULL);
-
-    if (IS_UDP(c->transport))
-        return;
-
-    if (c->rsize > READ_BUFFER_HIGHWAT && c->rbytes < DATA_BUFFER_SIZE) {
-        char *newbuf;
-
-        if (c->rcurr != c->rbuf)
-            memmove(c->rbuf, c->rcurr, (size_t)c->rbytes);
-
-        newbuf = (char *)realloc((void *)c->rbuf, DATA_BUFFER_SIZE);
-
-        if (newbuf) {
-            c->rbuf = newbuf;
-            c->rsize = DATA_BUFFER_SIZE;
-        }
-        /* TODO check other branch... */
-        c->rcurr = c->rbuf;
-    }
-
-    if (c->isize > ITEM_LIST_HIGHWAT) {
-        item **newbuf = (item**) realloc((void *)c->ilist, ITEM_LIST_INITIAL * sizeof(c->ilist[0]));
-        if (newbuf) {
-            c->ilist = newbuf;
-            c->isize = ITEM_LIST_INITIAL;
-        }
-    /* TODO check error condition? */
-    }
-
-    if (c->msgsize > MSG_LIST_HIGHWAT) {
-        struct msghdr *newbuf = (struct msghdr *) realloc((void *)c->msglist, MSG_LIST_INITIAL * sizeof(c->msglist[0]));
-        if (newbuf) {
-            c->msglist = newbuf;
-            c->msgsize = MSG_LIST_INITIAL;
-        }
-    /* TODO check error condition? */
-    }
-
-    if (c->iovsize > IOV_LIST_HIGHWAT) {
-        struct iovec *newbuf = (struct iovec *) realloc((void *)c->iov, IOV_LIST_INITIAL * sizeof(c->iov[0]));
-        if (newbuf) {
-            c->iov = newbuf;
-            c->iovsize = IOV_LIST_INITIAL;
-        }
-    /* TODO check return value */
-    }
-}
+//static void conn_shrink(conn *c) {
+//    assert(c != NULL);
+//
+//    if (IS_UDP(c->transport))
+//        return;
+//
+//    if (c->rsize > READ_BUFFER_HIGHWAT && c->rbytes < DATA_BUFFER_SIZE) {
+//        char *newbuf;
+//
+//        if (c->rcurr != c->rbuf)
+//            memmove(c->rbuf, c->rcurr, (size_t)c->rbytes);
+//
+//        newbuf = (char *)realloc((void *)c->rbuf, DATA_BUFFER_SIZE);
+//
+//        if (newbuf) {
+//            c->rbuf = newbuf;
+//            c->rsize = DATA_BUFFER_SIZE;
+//        }
+//        /* TODO check other branch... */
+//        c->rcurr = c->rbuf;
+//    }
+//
+//    if (c->isize > ITEM_LIST_HIGHWAT) {
+//        item **newbuf = (item**) realloc((void *)c->ilist, ITEM_LIST_INITIAL * sizeof(c->ilist[0]));
+//        if (newbuf) {
+//            c->ilist = newbuf;
+//            c->isize = ITEM_LIST_INITIAL;
+//        }
+//    /* TODO check error condition? */
+//    }
+//
+//    if (c->msgsize > MSG_LIST_HIGHWAT) {
+//        struct msghdr *newbuf = (struct msghdr *) realloc((void *)c->msglist, MSG_LIST_INITIAL * sizeof(c->msglist[0]));
+//        if (newbuf) {
+//            c->msglist = newbuf;
+//            c->msgsize = MSG_LIST_INITIAL;
+//        }
+//    /* TODO check error condition? */
+//    }
+//
+//    if (c->iovsize > IOV_LIST_HIGHWAT) {
+//        struct iovec *newbuf = (struct iovec *) realloc((void *)c->iov, IOV_LIST_INITIAL * sizeof(c->iov[0]));
+//        if (newbuf) {
+//            c->iov = newbuf;
+//            c->iovsize = IOV_LIST_INITIAL;
+//        }
+//    /* TODO check return value */
+//    }
+//}
 
 /**
  * Convert a state name to a human readable form.
@@ -978,7 +994,7 @@ static int add_iov(conn *c, const void *buf, int len) {
     int leftover;
 
     assert(c != NULL);
-    conn_wait_reqs_order(c); /* Wait for our turn */
+    conn_wait_reqs_order(c, c->reqs_total); /* Wait for our turn */
 
     if (IS_UDP(c->transport)) {
         do {
@@ -1282,6 +1298,8 @@ static void add_bin_header(conn *c, uint16_t err, uint8_t hdr_len, uint16_t key_
 
     assert(c);
 
+    conn_wait_reqs_order(c, c->reqs_total); /* Wait for our turn! */
+
     c->msgcurr = 0;
     c->msgused = 0;
     c->iovused = 0;
@@ -1500,88 +1518,88 @@ static void complete_incr_bin(conn *c) {
     }
 }
 
-static void complete_update_bin(conn *c) {
-    protocol_binary_response_status eno = PROTOCOL_BINARY_RESPONSE_EINVAL;
-    enum store_item_type ret = NOT_STORED;
-    assert(c != NULL);
+// static void complete_update_bin(conn *c) {
+//     protocol_binary_response_status eno = PROTOCOL_BINARY_RESPONSE_EINVAL;
+//     enum store_item_type ret = NOT_STORED;
+//     assert(c != NULL);
 
-    item *it = c->item;
+//     item *it = c->item;
 
-    pthread_mutex_lock(&c->thread->stats.mutex);
-    c->thread->stats.slab_stats[ITEM_clsid(it)].set_cmds++;
-    pthread_mutex_unlock(&c->thread->stats.mutex);
+//     pthread_mutex_lock(&c->thread->stats.mutex);
+//     c->thread->stats.slab_stats[ITEM_clsid(it)].set_cmds++;
+//     pthread_mutex_unlock(&c->thread->stats.mutex);
 
-    /* We don't actually receive the trailing two characters in the bin
-     * protocol, so we're going to just set them here */
-    if ((it->it_flags & ITEM_CHUNKED) == 0) {
-        *(ITEM_data(it) + it->nbytes - 2) = '\r';
-        *(ITEM_data(it) + it->nbytes - 1) = '\n';
-    } else {
-        assert(c->ritem);
-        item_chunk *ch = (item_chunk *) c->ritem;
-        if (ch->size == ch->used)
-            ch = ch->next;
-        assert(ch->size - ch->used >= 2);
-        ch->data[ch->used] = '\r';
-        ch->data[ch->used + 1] = '\n';
-        ch->used += 2;
-    }
+//     /* We don't actually receive the trailing two characters in the bin
+//      * protocol, so we're going to just set them here */
+//     if ((it->it_flags & ITEM_CHUNKED) == 0) {
+//         *(ITEM_data(it) + it->nbytes - 2) = '\r';
+//         *(ITEM_data(it) + it->nbytes - 1) = '\n';
+//     } else {
+//         assert(c->ritem);
+//         item_chunk *ch = (item_chunk *) c->ritem;
+//         if (ch->size == ch->used)
+//             ch = ch->next;
+//         assert(ch->size - ch->used >= 2);
+//         ch->data[ch->used] = '\r';
+//         ch->data[ch->used + 1] = '\n';
+//         ch->used += 2;
+//     }
 
-    ret = store_item(it, c->cmd, c);
+//     ret = store_item(it, c->cmd, c);
 
-#ifdef ENABLE_DTRACE
-    uint64_t cas = ITEM_get_cas(it);
-    switch (c->cmd) {
-    case NREAD_ADD:
-        MEMCACHED_COMMAND_ADD(c->sfd, ITEM_key(it), it->nkey,
-                              (ret == STORED) ? it->nbytes : -1, cas);
-        break;
-    case NREAD_REPLACE:
-        MEMCACHED_COMMAND_REPLACE(c->sfd, ITEM_key(it), it->nkey,
-                                  (ret == STORED) ? it->nbytes : -1, cas);
-        break;
-    case NREAD_APPEND:
-        MEMCACHED_COMMAND_APPEND(c->sfd, ITEM_key(it), it->nkey,
-                                 (ret == STORED) ? it->nbytes : -1, cas);
-        break;
-    case NREAD_PREPEND:
-        MEMCACHED_COMMAND_PREPEND(c->sfd, ITEM_key(it), it->nkey,
-                                 (ret == STORED) ? it->nbytes : -1, cas);
-        break;
-    case NREAD_SET:
-        MEMCACHED_COMMAND_SET(c->sfd, ITEM_key(it), it->nkey,
-                              (ret == STORED) ? it->nbytes : -1, cas);
-        break;
-    }
-#endif
+// #ifdef ENABLE_DTRACE
+//     uint64_t cas = ITEM_get_cas(it);
+//     switch (c->cmd) {
+//     case NREAD_ADD:
+//         MEMCACHED_COMMAND_ADD(c->sfd, ITEM_key(it), it->nkey,
+//                               (ret == STORED) ? it->nbytes : -1, cas);
+//         break;
+//     case NREAD_REPLACE:
+//         MEMCACHED_COMMAND_REPLACE(c->sfd, ITEM_key(it), it->nkey,
+//                                   (ret == STORED) ? it->nbytes : -1, cas);
+//         break;
+//     case NREAD_APPEND:
+//         MEMCACHED_COMMAND_APPEND(c->sfd, ITEM_key(it), it->nkey,
+//                                  (ret == STORED) ? it->nbytes : -1, cas);
+//         break;
+//     case NREAD_PREPEND:
+//         MEMCACHED_COMMAND_PREPEND(c->sfd, ITEM_key(it), it->nkey,
+//                                  (ret == STORED) ? it->nbytes : -1, cas);
+//         break;
+//     case NREAD_SET:
+//         MEMCACHED_COMMAND_SET(c->sfd, ITEM_key(it), it->nkey,
+//                               (ret == STORED) ? it->nbytes : -1, cas);
+//         break;
+//     }
+// #endif
 
-    switch (ret) {
-    case STORED:
-        /* Stored */
-        write_bin_response(c, NULL, 0, 0, 0);
-        break;
-    case EXISTS:
-        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, NULL, 0);
-        break;
-    case NOT_FOUND:
-        write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, NULL, 0);
-        break;
-    case NOT_STORED:
-    case TOO_LARGE:
-    case NO_MEMORY:
-        if (c->cmd == NREAD_ADD) {
-            eno = PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
-        } else if(c->cmd == NREAD_REPLACE) {
-            eno = PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
-        } else {
-            eno = PROTOCOL_BINARY_RESPONSE_NOT_STORED;
-        }
-        write_bin_error(c, eno, NULL, 0);
-    }
+//     switch (ret) {
+//     case STORED:
+//         /* Stored */
+//         write_bin_response(c, NULL, 0, 0, 0);
+//         break;
+//     case EXISTS:
+//         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, NULL, 0);
+//         break;
+//     case NOT_FOUND:
+//         write_bin_error(c, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, NULL, 0);
+//         break;
+//     case NOT_STORED:
+//     case TOO_LARGE:
+//     case NO_MEMORY:
+//         if (c->cmd == NREAD_ADD) {
+//             eno = PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
+//         } else if(c->cmd == NREAD_REPLACE) {
+//             eno = PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
+//         } else {
+//             eno = PROTOCOL_BINARY_RESPONSE_NOT_STORED;
+//         }
+//         write_bin_error(c, eno, NULL, 0);
+//     }
 
-    item_remove(c->item);       /* release the c->item reference */
-    c->item = 0;
-}
+//     item_remove(c->item);       /* release the c->item reference */
+//     c->item = 0;
+// }
 
 static void write_bin_miss_response(conn *c, char *key, size_t nkey) {
 
@@ -2486,6 +2504,16 @@ static void process_bin_update(conn *c) {
         c->cmd = NREAD_CAS;
     }
 
+    /* XXX: Qian: we assume that all threads will cleanup the item */
+    /*
+    while (c->item != 0) {
+        if (settings.verbose > 1) {
+            fprintf(stderr, "%s\n",
+                    "process bin update handler c->item non zero! wait...");
+        }
+        usleep(1);
+    } */
+
     c->item = it;
     c->ritem = ITEM_data(it);
     c->rlbytes = vlen;
@@ -2629,9 +2657,347 @@ static void process_bin_delete(conn *c) {
     }
 }
 
+/*
+ * This structure is the arguments for Arachne workers
+ * arg would contain: conn* c, request id.
+ */
+struct arachne_args {
+    conn* c;
+    int req_id;
+};
+typedef struct arachne_args arachne_args;
+
+
+/*
+ * Adds data to the list of pending data that will be written out to a
+ * connection.
+ *
+ * Used by Arachne worker threads.
+ */
+static int arachne_add_iov (conn *c, int req_id, const void *buf, int len) {
+    struct msghdr *m;
+    int leftover;
+
+    assert(c != NULL);
+    arachne_conn_wait_reqs_order(c, req_id); /* Wait for our turn */
+
+    if (IS_UDP(c->transport)) {
+        do {
+            m = &c->msglist[c->msgused - 1];
+
+            /*
+             * Limit UDP packets to UDP_MAX_PAYLOAD_SIZE bytes.
+             */
+
+            /* We may need to start a new msghdr if this one is full. */
+            if (m->msg_iovlen == IOV_MAX ||
+                (c->msgbytes >= UDP_MAX_PAYLOAD_SIZE)) {
+                add_msghdr(c);
+                m = &c->msglist[c->msgused - 1];
+            }
+
+            if (ensure_iov_space(c) != 0)
+                return -1;
+
+            /* If the fragment is too big to fit in the datagram, split it up */
+            if (len + c->msgbytes > UDP_MAX_PAYLOAD_SIZE) {
+                leftover = len + c->msgbytes - UDP_MAX_PAYLOAD_SIZE;
+                len -= leftover;
+            } else {
+                leftover = 0;
+            }
+
+            m = &c->msglist[c->msgused - 1];
+            m->msg_iov[m->msg_iovlen].iov_base = (void *)buf;
+            m->msg_iov[m->msg_iovlen].iov_len = len;
+
+            c->msgbytes += len;
+            c->iovused++;
+            m->msg_iovlen++;
+
+            buf = ((char *)buf) + len;
+            len = leftover;
+        } while (leftover > 0);
+    } else {
+        /* Optimized path for TCP connections */
+        m = &c->msglist[c->msgused - 1];
+        if (m->msg_iovlen == IOV_MAX) {
+            add_msghdr(c);
+            m = &c->msglist[c->msgused - 1];
+        }
+
+        if (ensure_iov_space(c) != 0)
+            return -1;
+
+        m->msg_iov[m->msg_iovlen].iov_base = (void *)buf;
+        m->msg_iov[m->msg_iovlen].iov_len = len;
+        c->msgbytes += len;
+        c->iovused++;
+        m->msg_iovlen++;
+    }
+
+    return 0;
+}
+
+/*
+ * Adds binary header
+ *
+ * Used by Arachne worker threads.
+ */
+static void arachne_add_bin_header(conn *c, int req_id, uint16_t err,
+            uint8_t hdr_len, uint16_t key_len, uint32_t body_len) {
+    protocol_binary_response_header* header;
+
+    assert(c);
+    arachne_conn_wait_reqs_order(c, req_id); /* Wait for our turn! */
+
+    c->msgcurr = 0;
+    c->msgused = 0;
+    c->iovused = 0;
+    if (add_msghdr(c) != 0) {
+        /* This should never run out of memory because iov and msg lists
+         * have minimum sizes big enough to hold an error response.
+         */
+        out_of_memory(c, "SERVER_ERROR out of memory adding binary header");
+        return;
+    }
+
+    header = (protocol_binary_response_header *)c->wbuf;
+
+    header->response.magic = (uint8_t)PROTOCOL_BINARY_RES;
+    header->response.opcode = c->binary_header.request.opcode;
+    header->response.keylen = (uint16_t)htons(key_len);
+
+    header->response.extlen = (uint8_t)hdr_len;
+    header->response.datatype = (uint8_t)PROTOCOL_BINARY_RAW_BYTES;
+    header->response.status = (uint16_t)htons(err);
+
+    header->response.bodylen = htonl(body_len);
+    header->response.opaque = c->opaque;
+    header->response.cas = htonll(c->cas);
+
+    if (settings.verbose > 1) {
+        int ii;
+        fprintf(stderr, ">%d Writing bin response:", c->sfd);
+        for (ii = 0; ii < sizeof(header->bytes); ++ii) {
+            if (ii % 4 == 0) {
+                fprintf(stderr, "\n>%d  ", c->sfd);
+            }
+            fprintf(stderr, " 0x%02x", header->bytes[ii]);
+        }
+        fprintf(stderr, "\n");
+    }
+
+    arachne_add_iov(c, req_id, c->wbuf, sizeof(header->response));
+}
+
+
+
+/* Form and send a response to a command over the binary protocol.
+ * Used by Arachne worker threads. Make sure the order to send!
+ */
+static void arachne_write_bin_response(
+            conn* c, int req_id, void* d, int hlen, int keylen, int dlen) {
+    if (!c->noreply || c->cmd == PROTOCOL_BINARY_CMD_GET ||
+        c->cmd == PROTOCOL_BINARY_CMD_GETK) {
+        arachne_add_bin_header(c, req_id, 0, hlen, keylen, dlen);
+        if (dlen > 0) {
+            arachne_add_iov(c, req_id, d, dlen);
+        }
+    }
+}
+
+/**
+ * Writes a binary error response. If errstr is supplied, it is used as the
+ * error text; otherwise a generic description of the error status code is
+ * included.
+ * Used by Arachne worker threads. Make sure the order to send!
+ */
+static void arachne_write_bin_error(
+            conn *c, int req_id, protocol_binary_response_status err,
+            const char *errstr, int swallow) {
+    size_t len;
+
+    if (!errstr) {
+        switch (err) {
+        case PROTOCOL_BINARY_RESPONSE_ENOMEM:
+            errstr = "Out of memory";
+            break;
+        case PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND:
+            errstr = "Unknown command";
+            break;
+        case PROTOCOL_BINARY_RESPONSE_KEY_ENOENT:
+            errstr = "Not found";
+            break;
+        case PROTOCOL_BINARY_RESPONSE_EINVAL:
+            errstr = "Invalid arguments";
+            break;
+        case PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS:
+            errstr = "Data exists for key.";
+            break;
+        case PROTOCOL_BINARY_RESPONSE_E2BIG:
+            errstr = "Too large.";
+            break;
+        case PROTOCOL_BINARY_RESPONSE_DELTA_BADVAL:
+            errstr = "Non-numeric server-side value for incr or decr";
+            break;
+        case PROTOCOL_BINARY_RESPONSE_NOT_STORED:
+            errstr = "Not stored.";
+            break;
+        case PROTOCOL_BINARY_RESPONSE_AUTH_ERROR:
+            errstr = "Auth failure.";
+            break;
+        default:
+            assert(false);
+            errstr = "UNHANDLED ERROR";
+            fprintf(stderr, ">%d UNHANDLED ERROR: %d\n", c->sfd, err);
+        }
+    }
+
+    if (settings.verbose > 1) {
+        fprintf(stderr, ">%d Writing an error: %s\n", c->sfd, errstr);
+    }
+
+    len = strlen(errstr);
+    arachne_add_bin_header(c, req_id, err, 0, 0, len);
+    if (len > 0) {
+        arachne_add_iov(c, req_id, errstr, len);
+    }
+}
+
+
+
+/*
+ * This function is the entrance for Arachne update worker threads.
+ * args is the argument list for this worker.
+ * This function will store the item and send response to the connection.
+ * And this function is responsible to release the args pointer.
+ */
+static void* arachne_bin_update_worker(void* args) {
+    arachne_args* arg_list = (arachne_args*)args;
+    conn* c = arg_list->c;
+    int req_id = arg_list->req_id;
+
+    if (settings.verbose > 1) {
+        fprintf(stderr, "Arachne worker is dealing with req id %d, reqs_total %d, reqs_curr %d \n", req_id, c->reqs_total, c->reqs_curr);
+    }
+
+    protocol_binary_response_status eno = PROTOCOL_BINARY_RESPONSE_EINVAL;
+    enum store_item_type ret = NOT_STORED;
+    assert(c != NULL);
+
+    item *it = c->item;
+
+    pthread_mutex_lock(&c->thread->stats.mutex);
+    c->thread->stats.slab_stats[ITEM_clsid(it)].set_cmds++;
+    pthread_mutex_unlock(&c->thread->stats.mutex);
+
+    /* We don't actually receive the trailing two characters in the bin
+     * protocol, so we're going to just set them here */
+    if ((it->it_flags & ITEM_CHUNKED) == 0) {
+        *(ITEM_data(it) + it->nbytes - 2) = '\r';
+        *(ITEM_data(it) + it->nbytes - 1) = '\n';
+    } else {
+        assert(c->ritem);
+        item_chunk *ch = (item_chunk *) c->ritem;
+        if (ch->size == ch->used)
+            ch = ch->next;
+        assert(ch->size - ch->used >= 2);
+        ch->data[ch->used] = '\r';
+        ch->data[ch->used + 1] = '\n';
+        ch->used += 2;
+    }
+
+    ret = store_item(it, c->cmd, c);
+
+#ifdef ENABLE_DTRACE
+    uint64_t cas = ITEM_get_cas(it);
+    switch (c->cmd) {
+    case NREAD_ADD:
+        MEMCACHED_COMMAND_ADD(c->sfd, ITEM_key(it), it->nkey,
+                              (ret == STORED) ? it->nbytes : -1, cas);
+        break;
+    case NREAD_REPLACE:
+        MEMCACHED_COMMAND_REPLACE(c->sfd, ITEM_key(it), it->nkey,
+                                  (ret == STORED) ? it->nbytes : -1, cas);
+        break;
+    case NREAD_APPEND:
+        MEMCACHED_COMMAND_APPEND(c->sfd, ITEM_key(it), it->nkey,
+                                 (ret == STORED) ? it->nbytes : -1, cas);
+        break;
+    case NREAD_PREPEND:
+        MEMCACHED_COMMAND_PREPEND(c->sfd, ITEM_key(it), it->nkey,
+                                 (ret == STORED) ? it->nbytes : -1, cas);
+        break;
+    case NREAD_SET:
+        MEMCACHED_COMMAND_SET(c->sfd, ITEM_key(it), it->nkey,
+                              (ret == STORED) ? it->nbytes : -1, cas);
+        break;
+    }
+#endif
+
+    switch (ret) {
+    case STORED:
+        /* Stored */
+        arachne_write_bin_response(c, req_id, NULL, 0, 0, 0);
+        break;
+    case EXISTS:
+        arachne_write_bin_error(c, req_id, PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS, NULL, 0);
+        break;
+    case NOT_FOUND:
+        arachne_write_bin_error(c, req_id, PROTOCOL_BINARY_RESPONSE_KEY_ENOENT, NULL, 0);
+        break;
+    case NOT_STORED:
+    case TOO_LARGE:
+    case NO_MEMORY:
+        if (c->cmd == NREAD_ADD) {
+            eno = PROTOCOL_BINARY_RESPONSE_KEY_EEXISTS;
+        } else if(c->cmd == NREAD_REPLACE) {
+            eno = PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
+        } else {
+            eno = PROTOCOL_BINARY_RESPONSE_NOT_STORED;
+        }
+        arachne_write_bin_error(c, req_id, eno, NULL, 0);
+    }
+
+    item_remove(c->item);       /* release the c->item reference */
+    c->item = 0;
+
+    /* Send back the results! Don't go through mwrite state.
+     * We have made sure the order, it will block in add_iov until our turn,
+     * so just call transmit here. Keep resending until success
+     */
+    bool finished = false;
+    while (!finished) {
+        switch (transmit(c)) {
+            case TRANSMIT_COMPLETE:
+                /* If complete, then increase the reqs_curr */
+                c->reqs_curr = ((c->reqs_curr + 1) % REQS_WINDOW_SIZE);
+
+                /* XXX: release items can cause segfault, race condition*/
+                // conn_release_items(c);
+                finished = true;
+                if (settings.verbose > 1) {
+                    fprintf(stderr, "reqs_total %d, reqs_curr %d\n",
+                            c->reqs_total, c->reqs_curr);
+                }
+                break;
+            case TRANSMIT_INCOMPLETE:
+            case TRANSMIT_HARD_ERROR:
+            case TRANSMIT_SOFT_ERROR:
+                break;
+        }
+    }
+
+    free(arg_list);
+    return NULL;
+}
+
 static void complete_nread_binary(conn *c) {
     assert(c != NULL);
     assert(c->cmd >= 0);
+
+    struct arachne_args* args;
 
     switch(c->substate) {
     case bin_reading_set_header:
@@ -2643,7 +3009,18 @@ static void complete_nread_binary(conn *c) {
         }
         break;
     case bin_read_set_value:
-        complete_update_bin(c);
+        // complete_update_bin(c);
+        args = malloc(sizeof(arachne_args));
+        args->c = c;
+        args->req_id = c->reqs_total; /* The latest request */
+        arachne_thread_id tid;
+        int retval = arachne_thread_create(&tid, arachne_bin_update_worker,
+                                           (void*)args);
+        if (retval == -1) {
+            fprintf(stderr, "Failed to create Arachne thread!\n");
+            exit(1);
+        }
+        conn_set_state(c, conn_new_cmd);
         break;
     case bin_reading_get_key:
     case bin_reading_touch_key:
@@ -2676,11 +3053,21 @@ static void complete_nread_binary(conn *c) {
 static void reset_cmd_handler(conn *c) {
     c->cmd = -1;
     c->substate = bin_no_state;
-    if(c->item != NULL) {
-        item_remove(c->item);
-        c->item = NULL;
-    }
-    conn_shrink(c);
+
+    /* XXX: Qian: we assume that all threads will cleanup the item */
+//    while (c->item != 0) {
+//        if (settings.verbose > 1) {
+//            fprintf(stderr, "%s\n", "c->item non zero! wait...");
+//        }
+//        usleep(1);
+//    }
+//
+//    if(c->item != NULL) {
+//        item_remove(c->item);
+//        c->item = NULL;
+//    }
+//    conn_shrink(c);
+
     if (c->rbytes > 0) {
         conn_set_state(c, conn_parse_cmd);
     } else {
@@ -4076,6 +4463,12 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     }
     ITEM_set_cas(it, req_cas_id);
 
+    /* XXX: Qian: we assume that all threads will cleanup the item */
+    /*
+    while (c->item != 0) {
+        fprintf(stderr, "%s\n", "c->item non zero! wait...");
+        usleep(1);
+    } */
     c->item = it;
     c->ritem = ITEM_data(it);
     c->rlbytes = it->nbytes;
