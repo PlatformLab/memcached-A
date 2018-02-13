@@ -412,29 +412,29 @@ static int start_conn_timeout_thread() {
  * If we use state drive machine not Arachne thread to handle request,
  * then it must be the latest request.
  */
-static inline void conn_wait_reqs_order(conn* c, int req_id) {
-    while (((c->reqs_curr + 1) % REQS_WINDOW_SIZE) != req_id) {
-        if (settings.verbose > 1) {
-            fprintf(stderr, "Waiting: reqs_curr %d, req_id %d, req_total %d \n",
-                c->reqs_curr, req_id, c->reqs_total);
-        }
-        usleep(1);
-    }
-}
+// static inline void conn_wait_reqs_order(conn* c, int req_id) {
+//     while (((c->reqs_curr + 1) % REQS_WINDOW_SIZE) != req_id) {
+//         if (settings.verbose > 1) {
+//             fprintf(stderr, "Waiting: reqs_curr %d, req_id %d, req_total %d \n",
+//                 c->reqs_curr, req_id, c->reqs_total);
+//         }
+//         usleep(1);
+//     }
+// }
 
 /* Control the order of sending responses.
  * If we use state drive machine not Arachne thread to handle request,
  * then it must be the latest request.
  */
-static inline void arachne_conn_wait_reqs_order(conn* c, int req_id) {
-    while (((c->reqs_curr + 1) % REQS_WINDOW_SIZE) != req_id) {
-        if (settings.verbose > 1) {
-            fprintf(stderr, "Waiting: reqs_curr %d, req_id %d, req_total %d \n",
-                c->reqs_curr, req_id, c->reqs_total);
-        }
-        arachne_thread_yield();
-    }
-}
+// static inline void arachne_conn_wait_reqs_order(conn* c, int req_id) {
+//     while (((c->reqs_curr + 1) % REQS_WINDOW_SIZE) != req_id) {
+//         if (settings.verbose > 1) {
+//             fprintf(stderr, "Waiting: reqs_curr %d, req_id %d, req_total %d \n",
+//                 c->reqs_curr, req_id, c->reqs_total);
+//         }
+//         arachne_thread_yield();
+//     }
+// }
 
 /*
  * Initializes the connections array. We don't actually allocate connection
@@ -994,7 +994,7 @@ static int add_iov(conn *c, const void *buf, int len) {
     int leftover;
 
     assert(c != NULL);
-    conn_wait_reqs_order(c, c->reqs_total); /* Wait for our turn */
+    // conn_wait_reqs_order(c, c->reqs_total); /* Wait for our turn */
 
     if (IS_UDP(c->transport)) {
         do {
@@ -1298,7 +1298,7 @@ static void add_bin_header(conn *c, uint16_t err, uint8_t hdr_len, uint16_t key_
 
     assert(c);
 
-    conn_wait_reqs_order(c, c->reqs_total); /* Wait for our turn! */
+    // conn_wait_reqs_order(c, c->reqs_total); /* Wait for our turn! */
 
     c->msgcurr = 0;
     c->msgused = 0;
@@ -2679,7 +2679,7 @@ static int arachne_add_iov (conn *c, int req_id, const void *buf, int len) {
     int leftover;
 
     assert(c != NULL);
-    arachne_conn_wait_reqs_order(c, req_id); /* Wait for our turn */
+    // arachne_conn_wait_reqs_order(c, req_id); /* Wait for our turn */
 
     if (IS_UDP(c->transport)) {
         do {
@@ -2749,7 +2749,7 @@ static void arachne_add_bin_header(conn *c, int req_id, uint16_t err,
     protocol_binary_response_header* header;
 
     assert(c);
-    arachne_conn_wait_reqs_order(c, req_id); /* Wait for our turn! */
+    // arachne_conn_wait_reqs_order(c, req_id); /* Wait for our turn! */
 
     c->msgcurr = 0;
     c->msgused = 0;
@@ -3054,14 +3054,9 @@ static void reset_cmd_handler(conn *c) {
     c->cmd = -1;
     c->substate = bin_no_state;
 
-    /* XXX: Qian: we assume that all threads will cleanup the item */
-//    while (c->item != 0) {
-//        if (settings.verbose > 1) {
-//            fprintf(stderr, "%s\n", "c->item non zero! wait...");
-//        }
-//        usleep(1);
-//    }
-//
+    /* XXX: Qian: we assume that all threads will cleanup the item 
+     * Temporarily comment out these to prevent segfault. 
+     */
 //    if(c->item != NULL) {
 //        item_remove(c->item);
 //        c->item = NULL;
@@ -4463,7 +4458,9 @@ static void process_update_command(conn *c, token_t *tokens, const size_t ntoken
     }
     ITEM_set_cas(it, req_cas_id);
 
-    /* XXX: Qian: we assume that all threads will cleanup the item */
+    /* XXX: Qian: we assume that all threads will cleanup the item 
+     * I think this is not a part of binary protocol, so skip it.
+     */
     /*
     while (c->item != 0) {
         fprintf(stderr, "%s\n", "c->item non zero! wait...");
@@ -5332,6 +5329,9 @@ static int try_read_command(conn *c) {
         if (c->rbytes < sizeof(c->binary_header)) {
             /* need more data! */
             return 0;
+        } else if (((c->reqs_curr + 1) % REQS_WINDOW_SIZE) != c->reqs_total) {
+            /* need to wait for our turn! */
+            return 2;
         } else {
 #ifdef NEED_ALIGN
             if (((long)(c->rcurr)) % 8 != 0) {
@@ -5499,7 +5499,7 @@ static enum try_read_result try_read_network(conn *c) {
 
     if (c->rcurr != c->rbuf) {
         if (c->rbytes != 0) /* otherwise there's nothing to copy */
-            memmove(c->rbuf, c->rcurr, c->rbytes);
+            memmove(c->rbuf, c->rcurr, c->rbytes); // This will wipe out buffer
         c->rcurr = c->rbuf;
     }
 
@@ -5867,9 +5867,20 @@ static void drive_machine(conn *c) {
             break;
 
         case conn_parse_cmd :
-            if (try_read_command(c) == 0) {
+            res = try_read_command(c);
+            if (res == 0) {
                 /* wee need more data! */
                 conn_set_state(c, conn_waiting);
+            } else if (res == 2) {
+                /* Not our turn, re-try parsing next time */
+                if (!update_event(c, EV_WRITE | EV_PERSIST)) {
+                    if (settings.verbose > 0)
+                        fprintf(stderr, "Couldn't update event\n");
+                    conn_set_state(c, conn_closing);
+                    break;
+                }
+                conn_set_state(c, conn_parse_cmd);
+                stop = true;
             }
 
             break;
