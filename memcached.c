@@ -3016,9 +3016,10 @@ static void complete_nread_binary(conn *c) {
         arachne_thread_id tid;
         int retval = arachne_thread_create(&tid, arachne_bin_update_worker,
                                            (void*)args);
-        if (retval == -1) {
-            fprintf(stderr, "Failed to create Arachne thread!\n");
-            exit(1);
+        while (retval != 0) {
+            // Failed to create Arachne thread! Retry...
+            retval = arachne_thread_create(&tid, arachne_bin_update_worker,
+                                           (void*)args);
         }
         conn_set_state(c, conn_new_cmd);
         break;
@@ -6953,6 +6954,8 @@ static int memcached_main () {
  */
 static void* main_wrapper(void *arg) {
     int ret;
+    ret = arachne_thread_exclusive_core(0);
+    fprintf(stderr, "Main thread successfully have an exclusive core: %d \n", ret);
 
     ret = memcached_main();
     if (ret != 0) {
@@ -8210,9 +8213,16 @@ int main(int argc, char** argv) {
     uriencode_init();
 
     /* Start main dispatch loop */
-    main_wrapper(NULL);
+    arachne_thread_id arachne_tid;
+    if (arachne_thread_create(&arachne_tid, main_wrapper, NULL) == -1) {
+        fprintf(stderr, "Failed to create Arachne thread!\n");
+        retval = EXIT_FAILURE;
+    } else {
+        arachne_wait_termination();
+    }
+    //main_wrapper(NULL);
 
-    arachne_wait_termination();
+    //arachne_wait_termination();
 
     stop_assoc_maintenance_thread();
 
