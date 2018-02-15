@@ -6941,8 +6941,12 @@ static bool _parse_slab_sizes(char *s, uint32_t *slab_sizes) {
 static int memcached_main () {
     int retval = EXIT_SUCCESS;
 
-    if (event_base_loop(main_base, 0) != 0) {
-        retval = EXIT_FAILURE;
+    while (1) {
+        retval = event_base_loop(main_base, EVLOOP_NONBLOCK);
+        if (retval == -1) {
+            retval = EXIT_FAILURE;
+            break;
+        }
     }
 
     return retval;
