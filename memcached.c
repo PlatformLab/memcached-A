@@ -5813,7 +5813,7 @@ void event_handler(const int fd, const short which, void *arg) {
         pthread_attr_init(&attr);
 
         /* Use pthreads */
-        ret = pthread_create(&thread_id, &attr, drive_machine, (void*)c); 
+        ret = pthread_create(&thread_id, &attr, drive_machine, (void*)c);
         while (ret != 0) {
             if (settings.verbose > 0) {
                 fprintf(stderr, "Failed to create pthread!\n");
