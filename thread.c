@@ -777,8 +777,8 @@ void memcached_thread_init(int nthreads, void *arg) {
         power = 15;
     }
 
-    /* XXX Qian: hard coded to 15, a large table */
-    power = 15;
+    /* XXX Qian: hard coded to 13, a reasonable large table */
+    power = 13;
 
     if (power >= hashpower) {
         fprintf(stderr, "Hash table power size (%d) cannot be equal to or less than item lock table (%d)\n", hashpower, power);
