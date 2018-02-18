@@ -6510,7 +6510,7 @@ static int memcached_main () {
     //     retval = EXIT_FAILURE;
     // }
     while (1) {
-        retval = event_base_loop(main_base, EVLOOP_NONBLOCK);
+        retval = event_base_loop(main_base, 0);
         if (retval != 0) {
             retval = EXIT_FAILURE;
             break;
@@ -6525,8 +6525,8 @@ static int memcached_main () {
  */
 static void* main_wrapper(void *arg) {
     int ret;
-    ret = arachne_thread_exclusive_core(0);
-    fprintf(stderr, "Main thread successfully have an exclusive core \n");
+    // ret = arachne_thread_exclusive_core(0);
+    // fprintf(stderr, "Main thread successfully have an exclusive core \n");
     ret = memcached_main();
     if (ret != 0) {
         fprintf(stderr, "Non-zero return code: %d\n", ret);
@@ -7792,15 +7792,16 @@ int main(int argc, char** argv) {
     uriencode_init();
 
     /* Start main dispatch thread */
-    arachne_thread_id arachne_tid;
-
-    if (arachne_thread_create(&arachne_tid, main_wrapper, NULL) == -1) {
-        fprintf(stderr, "Failed to create Arachne thread!\n");
-        retval = EXIT_FAILURE;
-    } else {
-        arachne_wait_termination();
-    }
-
+//    arachne_thread_id arachne_tid;
+//
+//    if (arachne_thread_create(&arachne_tid, main_wrapper, NULL) == -1) {
+//        fprintf(stderr, "Failed to create Arachne thread!\n");
+//        retval = EXIT_FAILURE;
+//    } else {
+//        arachne_wait_termination();
+//    }
+    main_wrapper(NULL);
+    arachne_wait_termination();
     stop_assoc_maintenance_thread();
 
     /* remove the PID file if we're a daemon */
