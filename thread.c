@@ -373,7 +373,14 @@ static void *worker_libevent(void *arg) {
 
     register_thread_initialized();
 
-    event_base_loop(me->base, 0);
+    // event_base_loop(me->base, 0);
+    int ret;
+    while (1) {
+        ret = event_base_loop(me->base, EVLOOP_NONBLOCK);
+        if (ret < 0) {
+            break;
+        }
+    }
     return NULL;
 }
 
