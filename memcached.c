@@ -5806,6 +5806,7 @@ void event_handler(const int fd, const short which, void *arg) {
         } 
 
         /* Start Arachne worker thread */
+        timetrace_record("Before creating thread");
         arachne_thread_id arachne_tid;
         ret = arachne_thread_create(&arachne_tid, drive_machine, (void*)c);
         while (ret != 0) {
@@ -5815,6 +5816,7 @@ void event_handler(const int fd, const short which, void *arg) {
             ret = arachne_thread_create(&arachne_tid, drive_machine, (void*)c);
         }
         // arachne_thread_join(&arachne_tid);
+        timetrace_record("Finish creating thread");
     } else {
         // Reactive! Otherwise, we will lose it.
         event_active(&c->event, 0, 0);
@@ -6464,9 +6466,17 @@ static void remove_pidfile(const char *pid_file) {
 
 }
 
+static void* timetrace_terminate(void* args) {
+    timetrace_record("End of memcached");
+    timetrace_print();
+    exit(EXIT_SUCCESS);
+}
+
 static void sig_handler(const int sig) {
     printf("Signal handled: %s.\n", strsignal(sig));
-    exit(EXIT_SUCCESS);
+    pthread_t tid;
+    pthread_create(&tid, NULL, timetrace_terminate, NULL);
+    return;
 }
 
 #ifndef HAVE_SIGIGNORE
@@ -6587,17 +6597,13 @@ static bool _parse_slab_sizes(char *s, uint32_t *slab_sizes) {
 /* Enter memcached main dispatch event loop */
 static int memcached_main () {
     int retval = EXIT_SUCCESS;
-
+    timetrace_set_keepoldevents(true);
+    timetrace_set_output_filename("timetrace.log");
+    timetrace_record("Start of main event loop");
     if (event_base_loop(main_base, 0) != 0) {
         retval = EXIT_FAILURE;
     }
-    // while (1) {
-    //     retval = event_base_loop(main_base, EVLOOP_NONBLOCK);
-    //     if (retval != 0) {
-    //         retval = EXIT_FAILURE;
-    //         break;
-    //     }
-    // }
+
     return retval;
 }
 
