@@ -5144,22 +5144,25 @@ static enum try_read_result try_read_network(conn *c) {
 
 static bool update_event(conn *c, const int new_flags) {
     assert(c != NULL);
-
+    timetrace_record("Start update event: %d", c->sfd);
     struct event_base *base = c->event.ev_base;
     // XXX: Qian: still need to readd, because we deleted in handler
     // if ((c->ev_flags == new_flags))
     //     return true;
-
+    timetrace_record("Before event_del in update: %d", c->sfd);
     if (event_del(&c->event) == -1) return false;
+    timetrace_record("After event_del in update: %d", c->sfd);
     event_set(&c->event, c->sfd, new_flags, event_handler, (void *)c);
     event_base_set(base, &c->event);
     c->ev_flags = new_flags;
+    timetrace_record("Before event_add in update: %d", c->sfd);
     if (event_add(&c->event, 0) == -1) return false;
+    timetrace_record("After event_add in update: %d", c->sfd);
     if (settings.verbose > 0) {
         fprintf(stderr, "Update_event finished! read: %d, write: %d \n",
                 (new_flags & EV_READ), (new_flags & EV_WRITE));
     }
-
+    timetrace_record("End update event: %d", c->sfd);
     return true;
 }
 
@@ -5777,6 +5780,7 @@ void event_handler(const int fd, const short which, void *arg) {
 //            state, (which & EV_READ), (which & EV_WRITE), finished);
 //    }
 
+    timetrace_record("Start of event_handler");
     /* sanity */
     if (fd != c->sfd) {
         if (settings.verbose > 0)
@@ -5800,10 +5804,12 @@ void event_handler(const int fd, const short which, void *arg) {
         }
 
         /* Delete the event to avoid race condition */
+        timetrace_record("Before event_del");
         c->finished = false;
         if (event_del(&c->event) == -1) {
            fprintf(stderr, "Failed to delete event! \n");
         } 
+        timetrace_record("After event_del");
 
         /* Start Arachne worker thread */
         timetrace_record("Before creating thread");
@@ -5819,7 +5825,9 @@ void event_handler(const int fd, const short which, void *arg) {
         timetrace_record("Finish creating thread");
     } else {
         // Reactive! Otherwise, we will lose it.
+        // timetrace_record("Before event_activate");
         event_active(&c->event, 0, 0);
+        // timetrace_record("After event_activate");
     }
 
     /* wait for next event */
