@@ -5146,11 +5146,15 @@ static bool update_event(conn *c, const int new_flags) {
     struct event_base *base = c->event.ev_base;
     if (c->ev_flags == new_flags)
         return true;
+    timetrace_record("Before event_del in update: %d", c->sfd);
     if (event_del(&c->event) == -1) return false;
+    timetrace_record("After event_del in update: %d", c->sfd);
     event_set(&c->event, c->sfd, new_flags, event_handler, (void *)c);
     event_base_set(base, &c->event);
     c->ev_flags = new_flags;
+    timetrace_record("Before event_add in update: %d", c->sfd);
     if (event_add(&c->event, 0) == -1) return false;
+    timetrace_record("After event_add in update: %d", c->sfd);
     return true;
 }
 
@@ -6382,9 +6386,17 @@ static void remove_pidfile(const char *pid_file) {
 
 }
 
+static void* timetrace_terminate(void* args) {
+    timetrace_record("End of memcached");
+    timetrace_print();
+    exit(EXIT_SUCCESS);
+}
+
 static void sig_handler(const int sig) {
     printf("Signal handled: %s.\n", strsignal(sig));
-    exit(EXIT_SUCCESS);
+    pthread_t tid;
+	pthread_create(&tid, NULL, timetrace_terminate, NULL);
+	return;
 }
 
 #ifndef HAVE_SIGIGNORE
@@ -6506,6 +6518,9 @@ static bool _parse_slab_sizes(char *s, uint32_t *slab_sizes) {
 static int memcached_main () {
     int retval = EXIT_SUCCESS;
 
+    timetrace_set_keepoldevents(true);
+    timetrace_set_output_filename("timetrace_scheme1.log");
+    timetrace_record("Start of main event loop");
     // if (event_base_loop(main_base, 0) != 0) {
     //     retval = EXIT_FAILURE;
     // }

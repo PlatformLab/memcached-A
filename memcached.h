@@ -30,6 +30,7 @@
 #endif
 
 #include "Arachne/arachne_wrapper.h"
+#include "PerfUtils/timetrace_wrapper.h"
 #include "sasl_defs.h"
 
 /** Maximum length of a key. */
