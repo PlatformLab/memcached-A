@@ -113,6 +113,14 @@ static int add_msghdr(conn *c);
 static void write_bin_error(conn *c, protocol_binary_response_status err,
                             const char *errstr, int swallow);
 static void write_bin_miss_response(conn *c, char *key, size_t nkey);
+/* This function is used to get the current value of the fine-grain CPU cycle
+ * counter (accessed via the RDTSCP instruction)
+ */
+static inline __attribute__((always_inline)) uint64_t rdtsc(void) {
+    uint32_t lo, hi;
+    __asm__ __volatile__("rdtscp" : "=a"(lo), "=d"(hi) : : "%rcx" );
+    return (((uint64_t)hi << 32) | lo);
+}
 
 #ifdef EXTSTORE
 static void _get_extstore_cb(void *e, obj_io *io, int ret);
@@ -5768,6 +5776,8 @@ void event_handler(const int fd, const short which, void *arg) {
     conn *c;
     int ret;
 
+    timetrace_record("Start of event_handler");
+
     c = (conn *)arg;
     assert(c != NULL);
 
@@ -5780,7 +5790,6 @@ void event_handler(const int fd, const short which, void *arg) {
 //            state, (which & EV_READ), (which & EV_WRITE), finished);
 //    }
 
-    timetrace_record("Start of event_handler");
     /* sanity */
     if (fd != c->sfd) {
         if (settings.verbose > 0)
@@ -5829,7 +5838,7 @@ void event_handler(const int fd, const short which, void *arg) {
         event_active(&c->event, 0, 0);
         // timetrace_record("After event_activate");
     }
-
+    timetrace_record("End of event_handler");
     /* wait for next event */
     return;
 }
