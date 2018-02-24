@@ -428,6 +428,7 @@ extern struct stats stats;
 extern struct stats_state stats_state;
 extern time_t process_started;
 extern struct settings settings;
+extern bool handled_event;
 
 #define ITEM_LINKED 1
 #define ITEM_CAS 2
@@ -774,3 +775,13 @@ extern void drop_worker_privileges(void);
 
 #define likely(x)       __builtin_expect((x),1)
 #define unlikely(x)     __builtin_expect((x),0)
+
+/* This function is used to get the current value of the fine-grain CPU cycle
+ * counter (accessed via the RDTSCP instruction)
+ */
+static inline __attribute__((always_inline)) uint64_t rdtsc(void) {
+    uint32_t lo, hi;
+    __asm__ __volatile__("rdtscp" : "=a"(lo), "=d"(hi) : : "%rcx" );
+    return (((uint64_t)hi << 32) | lo);
+}
+

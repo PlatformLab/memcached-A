@@ -113,14 +113,6 @@ static int add_msghdr(conn *c);
 static void write_bin_error(conn *c, protocol_binary_response_status err,
                             const char *errstr, int swallow);
 static void write_bin_miss_response(conn *c, char *key, size_t nkey);
-/* This function is used to get the current value of the fine-grain CPU cycle
- * counter (accessed via the RDTSCP instruction)
- */
-static inline __attribute__((always_inline)) uint64_t rdtsc(void) {
-    uint32_t lo, hi;
-    __asm__ __volatile__("rdtscp" : "=a"(lo), "=d"(hi) : : "%rcx" );
-    return (((uint64_t)hi << 32) | lo);
-}
 
 #ifdef EXTSTORE
 static void _get_extstore_cb(void *e, obj_io *io, int ret);
@@ -2794,6 +2786,7 @@ static int _store_item_copy_data(int comm, item *old_it, item *new_it, item *add
  * Returns the state of storage.
  */
 enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t hv) {
+    timetrace_record("Before do_store_item of %d", c->sfd);
     char *key = ITEM_key(it);
     item *old_it = do_item_get(key, it->nkey, hv, c, DONT_UPDATE);
     enum store_item_type stored = NOT_STORED;
@@ -2917,6 +2910,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
     LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE, NULL,
             stored, comm, ITEM_key(it), it->nkey, it->exptime, ITEM_clsid(it));
 
+    timetrace_record("After do_store_item %d", c->sfd);
     return stored;
 }
 
@@ -5152,25 +5146,28 @@ static enum try_read_result try_read_network(conn *c) {
 
 static bool update_event(conn *c, const int new_flags) {
     assert(c != NULL);
+    uint64_t start_time = rdtsc();
     timetrace_record("Start update event: %d", c->sfd);
     struct event_base *base = c->event.ev_base;
     // XXX: Qian: still need to readd, because we deleted in handler
     // if ((c->ev_flags == new_flags))
     //     return true;
-    timetrace_record("Before event_del in update: %d", c->sfd);
+    // timetrace_record("Before event_del in update: %d", c->sfd);
     if (event_del(&c->event) == -1) return false;
-    timetrace_record("After event_del in update: %d", c->sfd);
+    // timetrace_record("After event_del in update: %d", c->sfd);
     event_set(&c->event, c->sfd, new_flags, event_handler, (void *)c);
     event_base_set(base, &c->event);
     c->ev_flags = new_flags;
-    timetrace_record("Before event_add in update: %d", c->sfd);
+    // timetrace_record("Before event_add in update: %d", c->sfd);
     if (event_add(&c->event, 0) == -1) return false;
-    timetrace_record("After event_add in update: %d", c->sfd);
+    // timetrace_record("After event_add in update: %d", c->sfd);
     if (settings.verbose > 0) {
         fprintf(stderr, "Update_event finished! read: %d, write: %d \n",
                 (new_flags & EV_READ), (new_flags & EV_WRITE));
     }
-    timetrace_record("End update event: %d", c->sfd);
+    uint64_t end_time = rdtsc();
+    uint32_t delta_time = (end_time - start_time)/2;
+    timetrace_record("End update event: %d, %u ns", c->sfd, delta_time);
     return true;
 }
 
@@ -5370,6 +5367,8 @@ static int read_into_chunked_item(conn *c) {
 
 static void* drive_machine(void *vc) {
     conn* c = (conn*)vc;
+    timetrace_record("Start in drive machine %d", c->sfd);
+    uint64_t start_time = rdtsc();
     bool stop = false;
     int sfd;
     socklen_t addrlen;
@@ -5445,6 +5444,7 @@ static void* drive_machine(void *vc) {
             break;
 
         case conn_waiting:
+            timetrace_record("Before conn_waiting: %d", c->sfd);
             if (!update_event(c, EV_READ | EV_PERSIST)) {
                 if (settings.verbose > 0)
                     fprintf(stderr, "Couldn't update event\n");
@@ -5454,9 +5454,13 @@ static void* drive_machine(void *vc) {
             // c->ev_flags = (EV_READ | EV_PERSIST);
             conn_set_state(c, conn_read);
             stop = true;
+            timetrace_record("After conn_waiting: %d", c->sfd);
+
             break;
 
         case conn_read:
+            timetrace_record("Before conn_read: %d", c->sfd);
+
             res = IS_UDP(c->transport) ? try_read_udp(c) : try_read_network(c);
 
             switch (res) {
@@ -5473,19 +5477,25 @@ static void* drive_machine(void *vc) {
                 /* State already set by try_read_network */
                 break;
             }
+            timetrace_record("After conn_read: %d", c->sfd);
+
             break;
 
         case conn_parse_cmd :
+            timetrace_record("Before conn_parse_cmd: %d", c->sfd);
+
             if (try_read_command(c) == 0) {
                 /* wee need more data! */
                 conn_set_state(c, conn_waiting);
             }
+            timetrace_record("After conn_parse_cmd: %d", c->sfd);
 
             break;
 
         case conn_new_cmd:
             /* Only process nreqs at a time to avoid starving other
                connections */
+            timetrace_record("Before conn_new_cmd: %d", c->sfd);
 
             --nreqs;
             if (nreqs >= 0) {
@@ -5524,11 +5534,17 @@ static void* drive_machine(void *vc) {
                 }
                 stop = true;
             }
+            timetrace_record("After conn_new_cmd: %d", c->sfd);
+
             break;
 
         case conn_nread:
+            timetrace_record("Before conn_nread: %d", c->sfd);
+
             if (c->rlbytes == 0) {
                 complete_nread(c);
+                timetrace_record("Complete conn_nread: %d", c->sfd);
+
                 break;
             }
 
@@ -5693,6 +5709,8 @@ static void* drive_machine(void *vc) {
                 break;
             }
 #endif
+          timetrace_record("Before conn_mwrite: %d", c->sfd);
+
           if (IS_UDP(c->transport) && c->msgcurr == 0 && build_udp_headers(c) != 0) {
             if (settings.verbose > 0)
               fprintf(stderr, "Failed to build UDP headers\n");
@@ -5730,6 +5748,8 @@ static void* drive_machine(void *vc) {
                 stop = true;
                 break;
             }
+            timetrace_record("Finish conn_mwrite: %d", c->sfd);
+
             break;
 
         case conn_closing:
@@ -5768,6 +5788,10 @@ static void* drive_machine(void *vc) {
     if (settings.verbose > 0) {
         fprintf(stderr, "finished thread...state: %d \n", c->state);
     }
+    
+    uint64_t end_time = rdtsc();
+    uint32_t delta_ns = (end_time - start_time) / 2;
+    timetrace_record("End of drive machine %d, %u ns", c->sfd, delta_ns);
 
     return NULL;
 }
@@ -5777,6 +5801,7 @@ void event_handler(const int fd, const short which, void *arg) {
     int ret;
 
     timetrace_record("Start of event_handler");
+    handled_event = true;
 
     c = (conn *)arg;
     assert(c != NULL);
@@ -5813,12 +5838,12 @@ void event_handler(const int fd, const short which, void *arg) {
         }
 
         /* Delete the event to avoid race condition */
-        timetrace_record("Before event_del");
+        // timetrace_record("Before event_del");
         c->finished = false;
         if (event_del(&c->event) == -1) {
            fprintf(stderr, "Failed to delete event! \n");
         } 
-        timetrace_record("After event_del");
+        // timetrace_record("After event_del");
 
         /* Start Arachne worker thread */
         timetrace_record("Before creating thread");
@@ -6617,6 +6642,7 @@ static int memcached_main () {
     timetrace_set_keepoldevents(true);
     timetrace_set_output_filename("timetrace.log");
     timetrace_record("Start of main event loop");
+
     if (event_base_loop(main_base, 0) != 0) {
         retval = EXIT_FAILURE;
     }

@@ -1,4 +1,4 @@
-/* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
+// 2.0GHzz/* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 /*
  * Thread management for memcached.
  */
@@ -19,6 +19,8 @@
 #endif
 
 #define ITEMS_PER_ALLOC 64
+
+bool handled_event;
 
 /* An item in the connection queue. */
 enum conn_queue_item_modes {
@@ -388,12 +390,31 @@ static void *worker_libevent(void *arg) {
 
     register_thread_initialized();
 
+    uint64_t cycles_per_sec = 2000000000; // 2.0GHz
     // event_base_loop(me->base, 0);
+    uint64_t prev = rdtsc();
+    uint64_t active_cycles = 0;
+    uint64_t total_cycles = 0;
+    uint64_t curr = prev;
+    uint64_t print_prev = prev;
     while (1) {
-        ret = event_base_loop(me->base, 0);
-        if (ret != 0) {
+        handled_event = false;
+        ret = event_base_loop(me->base, EVLOOP_NONBLOCK);
+        curr = rdtsc();
+        int delta = curr - prev;
+        if (handled_event) {
+            active_cycles += delta;
+        } else if (ret == -1) {
             break;
         }
+        total_cycles += delta;
+        if (curr - print_prev >= cycles_per_sec) {
+            fprintf(stderr, "Utilization is: %.4lf %% \n", (double)active_cycles / total_cycles * 100.0);
+            total_cycles = 0;
+            active_cycles = 0;
+            print_prev = curr;
+        }
+        prev = curr;
     }
 
     event_base_free(me->base);

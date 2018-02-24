@@ -945,6 +945,7 @@ void item_stats_sizes(ADD_STAT add_stats, void *c) {
 
 /** wrapper around assoc_find which does the lazy expiration logic */
 item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c, const bool do_update) {
+    timetrace_record("Before do_item_get %d ", c->sfd);
     item *it = assoc_find(key, nkey, hv);
     if (it != NULL) {
         refcount_incr(it);
@@ -1046,6 +1047,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
     LOGGER_LOG(c->thread->l, LOG_FETCHERS, LOGGER_ITEM_GET, NULL, was_found, key, nkey,
                (it) ? ITEM_clsid(it) : 0);
 
+    timetrace_record("Finish do_item_get %d", c->sfd);
     return it;
 }
 
