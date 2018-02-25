@@ -1582,6 +1582,7 @@ static void write_bin_miss_response(conn *c, char *key, size_t nkey) {
 
 static void process_bin_get_or_touch(conn *c) {
     item *it;
+    bool record = (c->sfd == trace_sfd);
 
     protocol_binary_response_get* rsp = (protocol_binary_response_get*)c->wbuf;
     char* key = binary_get_key(c);
@@ -1614,15 +1615,21 @@ static void process_bin_get_or_touch(conn *c) {
         uint16_t keylen = 0;
         uint32_t bodylen = sizeof(rsp->message.body) + (it->nbytes - 2);
 
-        pthread_mutex_lock(&c->thread->stats.mutex);
-        if (should_touch) {
-            c->thread->stats.touch_cmds++;
-            c->thread->stats.slab_stats[ITEM_clsid(it)].touch_hits++;
-        } else {
-            c->thread->stats.get_cmds++;
-            c->thread->stats.lru_hits[it->slabs_clsid]++;
+        if (record) {
+            timetrace_record("[process_bin_get] Before stats.mutex hit: %d", c->sfd);
         }
-        pthread_mutex_unlock(&c->thread->stats.mutex);
+//        pthread_mutex_lock(&c->thread->stats.mutex);
+//        if (should_touch) {
+//            c->thread->stats.touch_cmds++;
+//            c->thread->stats.slab_stats[ITEM_clsid(it)].touch_hits++;
+//        } else {
+//            c->thread->stats.get_cmds++;
+//            c->thread->stats.lru_hits[it->slabs_clsid]++;
+//        }
+//        pthread_mutex_unlock(&c->thread->stats.mutex);
+        if (record) {
+            timetrace_record("[process_bin_get] After stats.mutex hit: %d", c->sfd);
+        }
 
         if (should_touch) {
             MEMCACHED_COMMAND_TOUCH(c->sfd, ITEM_key(it), it->nkey,
@@ -1705,15 +1712,21 @@ static void process_bin_get_or_touch(conn *c) {
     }
 
     if (failed) {
-        pthread_mutex_lock(&c->thread->stats.mutex);
-        if (should_touch) {
-            c->thread->stats.touch_cmds++;
-            c->thread->stats.touch_misses++;
-        } else {
-            c->thread->stats.get_cmds++;
-            c->thread->stats.get_misses++;
+        if (record) {
+            timetrace_record("[process_bin_get] Before stats.mutex miss: %d", c->sfd);
         }
-        pthread_mutex_unlock(&c->thread->stats.mutex);
+//        pthread_mutex_lock(&c->thread->stats.mutex);
+//        if (should_touch) {
+//            c->thread->stats.touch_cmds++;
+//            c->thread->stats.touch_misses++;
+//        } else {
+//            c->thread->stats.get_cmds++;
+//            c->thread->stats.get_misses++;
+//        }
+//        pthread_mutex_unlock(&c->thread->stats.mutex);
+        if (record) {
+            timetrace_record("[process_bin_get] After stats.mutex miss: %d", c->sfd);
+        }
 
         if (should_touch) {
             MEMCACHED_COMMAND_TOUCH(c->sfd, key, nkey, -1, 0);
@@ -2786,7 +2799,9 @@ static int _store_item_copy_data(int comm, item *old_it, item *new_it, item *add
  * Returns the state of storage.
  */
 enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t hv) {
-    timetrace_record("Before do_store_item of %d", c->sfd);
+    if (c->sfd == trace_sfd) {
+        timetrace_record("Before do_store_item of %d", c->sfd);
+    }
     char *key = ITEM_key(it);
     item *old_it = do_item_get(key, it->nkey, hv, c, DONT_UPDATE);
     enum store_item_type stored = NOT_STORED;
@@ -2910,7 +2925,9 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
     LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE, NULL,
             stored, comm, ITEM_key(it), it->nkey, it->exptime, ITEM_clsid(it));
 
-    timetrace_record("After do_store_item %d", c->sfd);
+    if (c->sfd == trace_sfd) {
+        timetrace_record("After do_store_item %d", c->sfd);
+    }
     return stored;
 }
 
@@ -5147,7 +5164,9 @@ static enum try_read_result try_read_network(conn *c) {
 static bool update_event(conn *c, const int new_flags) {
     assert(c != NULL);
     uint64_t start_time = rdtsc();
-    timetrace_record("Start update event: %d", c->sfd);
+    if (c->sfd == trace_sfd) {
+        timetrace_record("Start update event: %d", c->sfd);
+    }
     struct event_base *base = c->event.ev_base;
     // XXX: Qian: still need to readd, because we deleted in handler
     // if ((c->ev_flags == new_flags))
@@ -5167,7 +5186,9 @@ static bool update_event(conn *c, const int new_flags) {
     }
     uint64_t end_time = rdtsc();
     uint32_t delta_time = (end_time - start_time)/2;
-    timetrace_record("End update event: %d, %u ns", c->sfd, delta_time);
+    if (c->sfd == trace_sfd) {
+        timetrace_record("End update event: %d, %u ns", c->sfd, delta_time);
+    }
     return true;
 }
 
@@ -5225,7 +5246,7 @@ void do_accept_new_conns(const bool do_accept) {
  */
 static enum transmit_result transmit(conn *c) {
     assert(c != NULL);
-
+    bool record = (c->sfd == trace_sfd);
     if (c->msgcurr < c->msgused &&
             c->msglist[c->msgcurr].msg_iovlen == 0) {
         /* Finished writing the current msg; advance to the next. */
@@ -5235,11 +5256,21 @@ static enum transmit_result transmit(conn *c) {
         ssize_t res;
         struct msghdr *m = &c->msglist[c->msgcurr];
 
+        if (record) {
+            timetrace_record("[transmit] Before sendmsg %d", c->sfd);
+        }
         res = sendmsg(c->sfd, m, 0);
         if (res > 0) {
-            pthread_mutex_lock(&c->thread->stats.mutex);
-            c->thread->stats.bytes_written += res;
-            pthread_mutex_unlock(&c->thread->stats.mutex);
+            if (record) {
+                timetrace_record("[transmit] Before stats.mutex %d", c->sfd);
+            }
+            // pthread_mutex_lock(&c->thread->stats.mutex);
+            // c->thread->stats.bytes_written += res;
+            // pthread_mutex_unlock(&c->thread->stats.mutex);
+            if (record) {
+                timetrace_record("[transmit] After stats.mutex %d", c->sfd);
+            }
+
 
             /* We've written some of the data. Remove the completed
                iovec entries from the list of pending writes. */
@@ -5367,7 +5398,11 @@ static int read_into_chunked_item(conn *c) {
 
 static void* drive_machine(void *vc) {
     conn* c = (conn*)vc;
-    timetrace_record("Start in drive machine %d", c->sfd);
+    bool record = false;
+    if (c->sfd == trace_sfd) {
+        record = true;
+        timetrace_record("Start in drive machine %d", c->sfd);
+    }
     uint64_t start_time = rdtsc();
     bool stop = false;
     int sfd;
@@ -5444,7 +5479,7 @@ static void* drive_machine(void *vc) {
             break;
 
         case conn_waiting:
-            timetrace_record("Before conn_waiting: %d", c->sfd);
+           //  timetrace_record("Before conn_waiting: %d", c->sfd);
             if (!update_event(c, EV_READ | EV_PERSIST)) {
                 if (settings.verbose > 0)
                     fprintf(stderr, "Couldn't update event\n");
@@ -5454,12 +5489,13 @@ static void* drive_machine(void *vc) {
             // c->ev_flags = (EV_READ | EV_PERSIST);
             conn_set_state(c, conn_read);
             stop = true;
-            timetrace_record("After conn_waiting: %d", c->sfd);
-
+            if (record) {
+                timetrace_record("After conn_waiting: %d", c->sfd);
+            }
             break;
 
         case conn_read:
-            timetrace_record("Before conn_read: %d", c->sfd);
+            // timetrace_record("Before conn_read: %d", c->sfd);
 
             res = IS_UDP(c->transport) ? try_read_udp(c) : try_read_network(c);
 
@@ -5477,33 +5513,35 @@ static void* drive_machine(void *vc) {
                 /* State already set by try_read_network */
                 break;
             }
-            timetrace_record("After conn_read: %d", c->sfd);
-
+            if (record) {
+                timetrace_record("After conn_read: %d", c->sfd);
+            }
             break;
 
         case conn_parse_cmd :
-            timetrace_record("Before conn_parse_cmd: %d", c->sfd);
+            // timetrace_record("Before conn_parse_cmd: %d", c->sfd);
 
             if (try_read_command(c) == 0) {
                 /* wee need more data! */
                 conn_set_state(c, conn_waiting);
             }
-            timetrace_record("After conn_parse_cmd: %d", c->sfd);
-
+            if (record) {
+                timetrace_record("After conn_parse_cmd: %d", c->sfd);
+            }
             break;
 
         case conn_new_cmd:
             /* Only process nreqs at a time to avoid starving other
                connections */
-            timetrace_record("Before conn_new_cmd: %d", c->sfd);
+            // timetrace_record("Before conn_new_cmd: %d", c->sfd);
 
             --nreqs;
             if (nreqs >= 0) {
                 reset_cmd_handler(c);
             } else {
-                pthread_mutex_lock(&c->thread->stats.mutex);
-                c->thread->stats.conn_yields++;
-                pthread_mutex_unlock(&c->thread->stats.mutex);
+                // pthread_mutex_lock(&c->thread->stats.mutex);
+                // c->thread->stats.conn_yields++;
+                // pthread_mutex_unlock(&c->thread->stats.mutex);
                 if (c->rbytes > 0) {
                     /* We have already read in data into the input buffer,
                        so libevent will most likely not signal read events
@@ -5534,17 +5572,19 @@ static void* drive_machine(void *vc) {
                 }
                 stop = true;
             }
-            timetrace_record("After conn_new_cmd: %d", c->sfd);
-
+            if (record) {
+                timetrace_record("After conn_new_cmd: %d", c->sfd);
+            }
             break;
 
         case conn_nread:
-            timetrace_record("Before conn_nread: %d", c->sfd);
+            // timetrace_record("Before conn_nread: %d", c->sfd);
 
             if (c->rlbytes == 0) {
                 complete_nread(c);
-                timetrace_record("Complete conn_nread: %d", c->sfd);
-
+                if (record) {
+                    timetrace_record("Complete conn_nread: %d", c->sfd);
+                }
                 break;
             }
 
@@ -5576,9 +5616,9 @@ static void* drive_machine(void *vc) {
                 /*  now try reading from the socket */
                 res = read(c->sfd, c->ritem, c->rlbytes);
                 if (res > 0) {
-                    pthread_mutex_lock(&c->thread->stats.mutex);
-                    c->thread->stats.bytes_read += res;
-                    pthread_mutex_unlock(&c->thread->stats.mutex);
+                    // pthread_mutex_lock(&c->thread->stats.mutex);
+                    // c->thread->stats.bytes_read += res;
+                    // pthread_mutex_unlock(&c->thread->stats.mutex);
                     if (c->rcurr == c->ritem) {
                         c->rcurr += res;
                     }
@@ -5709,7 +5749,7 @@ static void* drive_machine(void *vc) {
                 break;
             }
 #endif
-          timetrace_record("Before conn_mwrite: %d", c->sfd);
+          // timetrace_record("Before conn_mwrite: %d", c->sfd);
 
           if (IS_UDP(c->transport) && c->msgcurr == 0 && build_udp_headers(c) != 0) {
             if (settings.verbose > 0)
@@ -5748,8 +5788,9 @@ static void* drive_machine(void *vc) {
                 stop = true;
                 break;
             }
-            timetrace_record("Finish conn_mwrite: %d", c->sfd);
-
+            if (record) {
+                timetrace_record("Finish conn_mwrite: %d", c->sfd);
+            }
             break;
 
         case conn_closing:
@@ -5791,8 +5832,9 @@ static void* drive_machine(void *vc) {
     
     uint64_t end_time = rdtsc();
     uint32_t delta_ns = (end_time - start_time) / 2;
-    timetrace_record("End of drive machine %d, %u ns", c->sfd, delta_ns);
-
+    if (record) {
+        timetrace_record("End of drive machine %d, %u ns", c->sfd, delta_ns);
+    }
     return NULL;
 }
 
@@ -5835,6 +5877,11 @@ void event_handler(const int fd, const short which, void *arg) {
         /* Don't go into the drive machine after closing this connection! */
         if (state == conn_closed) {
             return;
+        }
+
+        if ((state == conn_new_cmd) && (trace_sfd == -1)) {
+            trace_sfd = fd; // Only track one client
+            fprintf(stderr, "trace sfd: %d \n", trace_sfd);
         }
 
         /* Delete the event to avoid race condition */

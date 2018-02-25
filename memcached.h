@@ -429,6 +429,7 @@ extern struct stats_state stats_state;
 extern time_t process_started;
 extern struct settings settings;
 extern bool handled_event;
+extern int trace_sfd;
 
 #define ITEM_LINKED 1
 #define ITEM_CAS 2
