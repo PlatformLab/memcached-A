@@ -2784,10 +2784,12 @@ static int _store_item_copy_data(int comm, item *old_it, item *new_it, item *add
  * Returns the state of storage.
  */
 enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t hv) {
+    timetrace_record("Before do_store_item %d", c->sfd);
     char *key = ITEM_key(it);
     item *old_it = do_item_get(key, it->nkey, hv, c, DONT_UPDATE);
     enum store_item_type stored = NOT_STORED;
 
+    timetrace_record("Finish item_get in do_store_item %d", c->sfd);
     item *new_it = NULL;
     uint32_t flags;
 
@@ -2906,7 +2908,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
     }
     LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE, NULL,
             stored, comm, ITEM_key(it), it->nkey, it->exptime, ITEM_clsid(it));
-
+    timetrace_record("After do_store_item %d", c->sfd);
     return stored;
 }
 
@@ -5354,6 +5356,8 @@ static int read_into_chunked_item(conn *c) {
 
 static void drive_machine(conn *c) {
     bool stop = false;
+    uint64_t start_time = rdtsc();
+    timetrace_record("Start drive_machine %d", c->sfd);
     int sfd;
     socklen_t addrlen;
     struct sockaddr_storage addr;
@@ -5720,7 +5724,9 @@ static void drive_machine(conn *c) {
             break;
         }
     }
-
+    uint64_t end_time = rdtsc();
+    uint32_t delta_time = (end_time - start_time)/2;
+    timetrace_record("Finish drive_machine %d, %u ns", c->sfd, delta_time);
     return;
 }
 
