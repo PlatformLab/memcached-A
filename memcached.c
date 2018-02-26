@@ -5619,9 +5619,9 @@ static void* drive_machine(void *vc) {
             if (nreqs >= 0) {
                 reset_cmd_handler(c);
             } else {
-                // pthread_mutex_lock(&c->thread->stats.mutex);
-                // c->thread->stats.conn_yields++;
-                // pthread_mutex_unlock(&c->thread->stats.mutex);
+                pthread_mutex_lock(&c->thread->stats.mutex);
+                c->thread->stats.conn_yields++;
+                pthread_mutex_unlock(&c->thread->stats.mutex);
                 if (c->rbytes > 0) {
                     /* We have already read in data into the input buffer,
                        so libevent will most likely not signal read events
@@ -5698,9 +5698,9 @@ static void* drive_machine(void *vc) {
                 /*  now try reading from the socket */
                 res = read(c->sfd, c->ritem, c->rlbytes);
                 if (res > 0) {
-                    // pthread_mutex_lock(&c->thread->stats.mutex);
-                    // c->thread->stats.bytes_read += res;
-                    // pthread_mutex_unlock(&c->thread->stats.mutex);
+                    pthread_mutex_lock(&c->thread->stats.mutex);
+                    c->thread->stats.bytes_read += res;
+                    pthread_mutex_unlock(&c->thread->stats.mutex);
                     if (c->rcurr == c->ritem) {
                         c->rcurr += res;
                     }
