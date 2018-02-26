@@ -391,8 +391,8 @@ static void *worker_libevent(void *arg) {
 
     register_thread_initialized();
 
-    uint64_t cycles_per_sec = 2000000000; // 2.0GHz
     // event_base_loop(me->base, 0);
+    uint64_t cycles_per_sec = 2000000000; // 2.0GHz
     uint64_t prev = rdtsc();
     uint64_t active_cycles = 0;
     uint64_t total_cycles = 0;
@@ -410,7 +410,9 @@ static void *worker_libevent(void *arg) {
         }
         total_cycles += delta;
         if (curr - print_prev >= cycles_per_sec) {
+#if defined(TIMETRACE) || defined(TIMETRACE_HANDLE)
             fprintf(stderr, "Utilization is: %.4lf %% \n", (double)active_cycles / total_cycles * 100.0);
+#endif
             total_cycles = 0;
             active_cycles = 0;
             print_prev = curr;

@@ -1486,12 +1486,24 @@ static void complete_update_bin(conn *c) {
     protocol_binary_response_status eno = PROTOCOL_BINARY_RESPONSE_EINVAL;
     enum store_item_type ret = NOT_STORED;
     assert(c != NULL);
+#ifdef TIMETRACE
+    bool record = (c->sfd == trace_sfd);
+    if (record) {
+        timetrace_record("[complete_update_bin] Start, before stats.mutex: %d", c->sfd);
+    }
+#endif
 
     item *it = c->item;
 
     pthread_mutex_lock(&c->thread->stats.mutex);
     c->thread->stats.slab_stats[ITEM_clsid(it)].set_cmds++;
     pthread_mutex_unlock(&c->thread->stats.mutex);
+
+#ifdef TIMETRACE
+    if (record) {
+        timetrace_record("[complete_update_bin] After stats.mutex: %d", c->sfd);
+    }
+#endif
 
     /* We don't actually receive the trailing two characters in the bin
      * protocol, so we're going to just set them here */
@@ -1563,6 +1575,12 @@ static void complete_update_bin(conn *c) {
 
     item_remove(c->item);       /* release the c->item reference */
     c->item = 0;
+#ifdef TIMETRACE
+    if (record) {
+        timetrace_record("[complete_update_bin] Finish update bin: %d", c->sfd);
+    }
+#endif
+
 }
 
 static void write_bin_miss_response(conn *c, char *key, size_t nkey) {
@@ -1582,8 +1600,9 @@ static void write_bin_miss_response(conn *c, char *key, size_t nkey) {
 
 static void process_bin_get_or_touch(conn *c) {
     item *it;
+#ifdef TIMETRACE
     bool record = (c->sfd == trace_sfd);
-
+#endif
     protocol_binary_response_get* rsp = (protocol_binary_response_get*)c->wbuf;
     char* key = binary_get_key(c);
     size_t nkey = c->binary_header.request.keylen;
@@ -1615,22 +1634,25 @@ static void process_bin_get_or_touch(conn *c) {
         uint16_t keylen = 0;
         uint32_t bodylen = sizeof(rsp->message.body) + (it->nbytes - 2);
 
+#ifdef TIMETRACE
         if (record) {
             timetrace_record("[process_bin_get] Before stats.mutex hit: %d", c->sfd);
         }
-//        pthread_mutex_lock(&c->thread->stats.mutex);
-//        if (should_touch) {
-//            c->thread->stats.touch_cmds++;
-//            c->thread->stats.slab_stats[ITEM_clsid(it)].touch_hits++;
-//        } else {
-//            c->thread->stats.get_cmds++;
-//            c->thread->stats.lru_hits[it->slabs_clsid]++;
-//        }
-//        pthread_mutex_unlock(&c->thread->stats.mutex);
+#endif
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        if (should_touch) {
+            c->thread->stats.touch_cmds++;
+            c->thread->stats.slab_stats[ITEM_clsid(it)].touch_hits++;
+        } else {
+            c->thread->stats.get_cmds++;
+            c->thread->stats.lru_hits[it->slabs_clsid]++;
+        }
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+#ifdef TIMETRACE
         if (record) {
             timetrace_record("[process_bin_get] After stats.mutex hit: %d", c->sfd);
         }
-
+#endif
         if (should_touch) {
             MEMCACHED_COMMAND_TOUCH(c->sfd, ITEM_key(it), it->nkey,
                                     it->nbytes, ITEM_get_cas(it));
@@ -1712,21 +1734,25 @@ static void process_bin_get_or_touch(conn *c) {
     }
 
     if (failed) {
+#ifdef TIMETRACE
         if (record) {
             timetrace_record("[process_bin_get] Before stats.mutex miss: %d", c->sfd);
         }
-//        pthread_mutex_lock(&c->thread->stats.mutex);
-//        if (should_touch) {
-//            c->thread->stats.touch_cmds++;
-//            c->thread->stats.touch_misses++;
-//        } else {
-//            c->thread->stats.get_cmds++;
-//            c->thread->stats.get_misses++;
-//        }
-//        pthread_mutex_unlock(&c->thread->stats.mutex);
+#endif
+        pthread_mutex_lock(&c->thread->stats.mutex);
+        if (should_touch) {
+            c->thread->stats.touch_cmds++;
+            c->thread->stats.touch_misses++;
+        } else {
+            c->thread->stats.get_cmds++;
+            c->thread->stats.get_misses++;
+        }
+        pthread_mutex_unlock(&c->thread->stats.mutex);
+#ifdef TIMETRACE
         if (record) {
             timetrace_record("[process_bin_get] After stats.mutex miss: %d", c->sfd);
         }
+#endif
 
         if (should_touch) {
             MEMCACHED_COMMAND_TOUCH(c->sfd, key, nkey, -1, 0);
@@ -2799,9 +2825,12 @@ static int _store_item_copy_data(int comm, item *old_it, item *new_it, item *add
  * Returns the state of storage.
  */
 enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t hv) {
-    if (c->sfd == trace_sfd) {
-        timetrace_record("Before do_store_item of %d", c->sfd);
+#ifdef TIMETRACE
+    bool record = (c->sfd == trace_sfd);
+    if (record) {
+        timetrace_record("[do_store_item] Before do_store_item of %d", c->sfd);
     }
+#endif
     char *key = ITEM_key(it);
     item *old_it = do_item_get(key, it->nkey, hv, c, DONT_UPDATE);
     enum store_item_type stored = NOT_STORED;
@@ -2901,11 +2930,26 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
         }
 
         if (stored == NOT_STORED && failed_alloc == 0) {
+#ifdef TIMETRACE
+    if (record) {
+        timetrace_record("[do_store_item] Before STORAGE_delete %d", c->sfd);
+    }
+#endif
             if (old_it != NULL) {
                 STORAGE_delete(c->thread->storage, old_it);
                 item_replace(old_it, it, hv);
+#ifdef TIMETRACE
+    if (record) {
+        timetrace_record("[do_store_item] After STORAGE_delete and replace %d", c->sfd);
+    }
+#endif
             } else {
                 do_item_link(it, hv);
+#ifdef TIMETRACE
+    if (record) {
+        timetrace_record("[do_store_item] AFter do_item_link %d", c->sfd);
+    }
+#endif
             }
 
             c->cas = ITEM_get_cas(it);
@@ -2913,21 +2957,33 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
             stored = STORED;
         }
     }
+#ifdef TIMETRACE
+    if (record) {
+        timetrace_record("[do_store_item] Before do_item_remove %d", c->sfd);
+    }
+#endif
 
     if (old_it != NULL)
         do_item_remove(old_it);         /* release our reference */
     if (new_it != NULL)
         do_item_remove(new_it);
 
+#ifdef TIMETRACE
+    if (record) {
+        timetrace_record("[do_store_item] After do_item_remove, before get_cas %d", c->sfd);
+    }
+#endif
+
     if (stored == STORED) {
         c->cas = ITEM_get_cas(it);
     }
     LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE, NULL,
             stored, comm, ITEM_key(it), it->nkey, it->exptime, ITEM_clsid(it));
-
-    if (c->sfd == trace_sfd) {
-        timetrace_record("After do_store_item %d", c->sfd);
+#ifdef TIMETRACE
+    if (record) {
+        timetrace_record("[do_store_item] After do_store_item %d", c->sfd);
     }
+#endif
     return stored;
 }
 
@@ -5163,32 +5219,44 @@ static enum try_read_result try_read_network(conn *c) {
 
 static bool update_event(conn *c, const int new_flags) {
     assert(c != NULL);
-    uint64_t start_time = rdtsc();
-    if (c->sfd == trace_sfd) {
-        timetrace_record("Start update event: %d", c->sfd);
+#ifdef TIMETRACE
+    // uint64_t start_time = rdtsc();
+    bool record = (c->sfd == trace_sfd);
+    if (record) {
+        timetrace_record("[update_event] Start update event: %d", c->sfd);
     }
+#endif
+
     struct event_base *base = c->event.ev_base;
     // XXX: Qian: still need to readd, because we deleted in handler
     // if ((c->ev_flags == new_flags))
     //     return true;
-    // timetrace_record("Before event_del in update: %d", c->sfd);
+
     if (event_del(&c->event) == -1) return false;
-    // timetrace_record("After event_del in update: %d", c->sfd);
+
+#ifdef TIMETRACE
+    if (record) {
+        timetrace_record("[update_event] After event_del in update: %d", c->sfd);
+    }
+#endif
+
     event_set(&c->event, c->sfd, new_flags, event_handler, (void *)c);
     event_base_set(base, &c->event);
     c->ev_flags = new_flags;
-    // timetrace_record("Before event_add in update: %d", c->sfd);
+
     if (event_add(&c->event, 0) == -1) return false;
-    // timetrace_record("After event_add in update: %d", c->sfd);
+
     if (settings.verbose > 0) {
         fprintf(stderr, "Update_event finished! read: %d, write: %d \n",
                 (new_flags & EV_READ), (new_flags & EV_WRITE));
     }
-    uint64_t end_time = rdtsc();
-    uint32_t delta_time = (end_time - start_time)/2;
-    if (c->sfd == trace_sfd) {
-        timetrace_record("End update event: %d, %u ns", c->sfd, delta_time);
+#ifdef TIMETRACE
+    // uint64_t end_time = rdtsc();
+    // uint32_t delta_time = (end_time - start_time)/2;
+    if (record) {
+        timetrace_record("[update_event] Finish update event, after event_add: %d", c->sfd);
     }
+#endif
     return true;
 }
 
@@ -5246,7 +5314,11 @@ void do_accept_new_conns(const bool do_accept) {
  */
 static enum transmit_result transmit(conn *c) {
     assert(c != NULL);
+
+#ifdef TIMETRACE
     bool record = (c->sfd == trace_sfd);
+#endif
+
     if (c->msgcurr < c->msgused &&
             c->msglist[c->msgcurr].msg_iovlen == 0) {
         /* Finished writing the current msg; advance to the next. */
@@ -5255,22 +5327,27 @@ static enum transmit_result transmit(conn *c) {
     if (c->msgcurr < c->msgused) {
         ssize_t res;
         struct msghdr *m = &c->msglist[c->msgcurr];
-
+#ifdef TIMETRACE
         if (record) {
             timetrace_record("[transmit] Before sendmsg %d", c->sfd);
         }
+#endif
         res = sendmsg(c->sfd, m, 0);
-        if (res > 0) {
+#ifdef TIMETRACE
             if (record) {
-                timetrace_record("[transmit] Before stats.mutex %d", c->sfd);
+                timetrace_record("[transmit] After sendmsg, before stats.mutex %d", c->sfd);
             }
-            // pthread_mutex_lock(&c->thread->stats.mutex);
-            // c->thread->stats.bytes_written += res;
-            // pthread_mutex_unlock(&c->thread->stats.mutex);
+#endif
+        if (res > 0) {
+            pthread_mutex_lock(&c->thread->stats.mutex);
+            c->thread->stats.bytes_written += res;
+            pthread_mutex_unlock(&c->thread->stats.mutex);
+
+#ifdef TIMETRACE
             if (record) {
                 timetrace_record("[transmit] After stats.mutex %d", c->sfd);
             }
-
+#endif
 
             /* We've written some of the data. Remove the completed
                iovec entries from the list of pending writes. */
@@ -5398,12 +5475,15 @@ static int read_into_chunked_item(conn *c) {
 
 static void* drive_machine(void *vc) {
     conn* c = (conn*)vc;
+#ifdef TIMETRACE
     bool record = false;
     if (c->sfd == trace_sfd) {
         record = true;
-        timetrace_record("Start in drive machine %d", c->sfd);
+        timetrace_record("[drive_machine] Start in drive machine %d", c->sfd);
     }
-    uint64_t start_time = rdtsc();
+    // uint64_t start_time = rdtsc();
+#endif
+
     bool stop = false;
     int sfd;
     socklen_t addrlen;
@@ -5479,7 +5559,6 @@ static void* drive_machine(void *vc) {
             break;
 
         case conn_waiting:
-           //  timetrace_record("Before conn_waiting: %d", c->sfd);
             if (!update_event(c, EV_READ | EV_PERSIST)) {
                 if (settings.verbose > 0)
                     fprintf(stderr, "Couldn't update event\n");
@@ -5489,14 +5568,14 @@ static void* drive_machine(void *vc) {
             // c->ev_flags = (EV_READ | EV_PERSIST);
             conn_set_state(c, conn_read);
             stop = true;
+#ifdef TIMETRACE
             if (record) {
-                timetrace_record("After conn_waiting: %d", c->sfd);
+                timetrace_record("[drive_machine] After conn_waiting: %d", c->sfd);
             }
+#endif
             break;
 
         case conn_read:
-            // timetrace_record("Before conn_read: %d", c->sfd);
-
             res = IS_UDP(c->transport) ? try_read_udp(c) : try_read_network(c);
 
             switch (res) {
@@ -5513,28 +5592,29 @@ static void* drive_machine(void *vc) {
                 /* State already set by try_read_network */
                 break;
             }
+#ifdef TIMETRACE
             if (record) {
-                timetrace_record("After conn_read: %d", c->sfd);
+                timetrace_record("[drive_machine] After conn_read: %d", c->sfd);
             }
+#endif
             break;
 
         case conn_parse_cmd :
-            // timetrace_record("Before conn_parse_cmd: %d", c->sfd);
-
             if (try_read_command(c) == 0) {
                 /* wee need more data! */
                 conn_set_state(c, conn_waiting);
             }
+
+#ifdef TIMETRACE
             if (record) {
-                timetrace_record("After conn_parse_cmd: %d", c->sfd);
+                timetrace_record("[drive_machine] After conn_parse_cmd: %d", c->sfd);
             }
+#endif
             break;
 
         case conn_new_cmd:
             /* Only process nreqs at a time to avoid starving other
                connections */
-            // timetrace_record("Before conn_new_cmd: %d", c->sfd);
-
             --nreqs;
             if (nreqs >= 0) {
                 reset_cmd_handler(c);
@@ -5572,19 +5652,21 @@ static void* drive_machine(void *vc) {
                 }
                 stop = true;
             }
+#ifdef TIMETRACE
             if (record) {
-                timetrace_record("After conn_new_cmd: %d", c->sfd);
+                timetrace_record("[drive_machine] After conn_new_cmd: %d", c->sfd);
             }
+#endif
             break;
 
         case conn_nread:
-            // timetrace_record("Before conn_nread: %d", c->sfd);
-
             if (c->rlbytes == 0) {
                 complete_nread(c);
+#ifdef TIMETRACE
                 if (record) {
-                    timetrace_record("Complete conn_nread: %d", c->sfd);
+                    timetrace_record("[drive_machine] Complete conn_nread: %d", c->sfd);
                 }
+#endif
                 break;
             }
 
@@ -5624,6 +5706,7 @@ static void* drive_machine(void *vc) {
                     }
                     c->ritem += res;
                     c->rlbytes -= res;
+
                     break;
                 }
             } else {
@@ -5749,7 +5832,6 @@ static void* drive_machine(void *vc) {
                 break;
             }
 #endif
-          // timetrace_record("Before conn_mwrite: %d", c->sfd);
 
           if (IS_UDP(c->transport) && c->msgcurr == 0 && build_udp_headers(c) != 0) {
             if (settings.verbose > 0)
@@ -5788,9 +5870,11 @@ static void* drive_machine(void *vc) {
                 stop = true;
                 break;
             }
+#ifdef TIMETRACE
             if (record) {
-                timetrace_record("Finish conn_mwrite: %d", c->sfd);
+                timetrace_record("[drive_machine] Complete conn_mwrite: %d", c->sfd);
             }
+#endif
             break;
 
         case conn_closing:
@@ -5829,12 +5913,14 @@ static void* drive_machine(void *vc) {
     if (settings.verbose > 0) {
         fprintf(stderr, "finished thread...state: %d \n", c->state);
     }
-    
-    uint64_t end_time = rdtsc();
-    uint32_t delta_ns = (end_time - start_time) / 2;
+
+#ifdef TIMETRACE
+    // uint64_t end_time = rdtsc();
+    // uint32_t delta_ns = (end_time - start_time) / 2;
     if (record) {
-        timetrace_record("End of drive machine %d, %u ns", c->sfd, delta_ns);
+        timetrace_record("[drive_machine] End of drive machine %d", c->sfd);
     }
+#endif
     return NULL;
 }
 
@@ -5842,8 +5928,14 @@ void event_handler(const int fd, const short which, void *arg) {
     conn *c;
     int ret;
 
-    timetrace_record("Start of event_handler");
-    handled_event = true;
+#ifdef TIMETRACE_HANDLE
+    bool record = true; // Always record!
+    if (record) {
+        timetrace_record("[event_handler] Start of event_handler");
+    }
+#endif
+
+    handled_event = true; // For utilization count
 
     c = (conn *)arg;
     assert(c != NULL);
@@ -5885,15 +5977,27 @@ void event_handler(const int fd, const short which, void *arg) {
         }
 
         /* Delete the event to avoid race condition */
-        // timetrace_record("Before event_del");
+#ifdef TIMETRACE_HANDLE
+        if (record) {
+            timetrace_record("[event_handler]Before event_del");
+        }
+#endif
         c->finished = false;
         if (event_del(&c->event) == -1) {
            fprintf(stderr, "Failed to delete event! \n");
         } 
-        // timetrace_record("After event_del");
 
+#ifdef TIMETRACE_HANDLE
+        if (record) {
+            timetrace_record("[event_handler] After event_del");
+        }
+#endif
         /* Start Arachne worker thread */
-        timetrace_record("Before creating thread");
+#ifdef TIMETRACE_HANDLE
+        if (record) {
+            timetrace_record("[event_handler] Before creating thread");
+        }
+#endif
         arachne_thread_id arachne_tid;
         ret = arachne_thread_create(&arachne_tid, drive_machine, (void*)c);
         while (ret != 0) {
@@ -5903,14 +6007,34 @@ void event_handler(const int fd, const short which, void *arg) {
             ret = arachne_thread_create(&arachne_tid, drive_machine, (void*)c);
         }
         // arachne_thread_join(&arachne_tid);
-        timetrace_record("Finish creating thread");
+#ifdef TIMETRACE_HANDLE
+        if (record) {
+            timetrace_record("[event_handler] Finish creating thread");
+        }
+#endif
     } else {
         // Reactive! Otherwise, we will lose it.
-        // timetrace_record("Before event_activate");
+#ifdef TIMETRACE_HANDLE
+        if (record) {
+            timetrace_record("[event_handler] Before event_activate");
+        }
+#endif
+
         event_active(&c->event, 0, 0);
-        // timetrace_record("After event_activate");
+
+#ifdef TIMETRACE_HANDLE
+        if (record) {
+            timetrace_record("[event_handler] After event_activate");
+        }
+#endif
+
     }
-    timetrace_record("End of event_handler");
+
+#ifdef TIMETRACE_HANDLE
+    if (record) {
+        timetrace_record("[event_handler] End of event_handler");
+    }
+#endif
     /* wait for next event */
     return;
 }
@@ -6687,7 +6811,13 @@ static bool _parse_slab_sizes(char *s, uint32_t *slab_sizes) {
 static int memcached_main () {
     int retval = EXIT_SUCCESS;
     timetrace_set_keepoldevents(true);
-    timetrace_set_output_filename("timetrace.log");
+#ifdef TIMETRACE
+    timetrace_set_output_filename("timetrace_scheme3.log");
+#endif
+
+#ifdef TIMETRACE_HANDLE
+    timetrace_set_output_filename("timetrace_handler_scheme3.log");
+#endif
     timetrace_record("Start of main event loop");
 
     if (event_base_loop(main_base, 0) != 0) {
