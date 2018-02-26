@@ -515,13 +515,22 @@ void do_item_unlink_nolock(item *it, const uint32_t hv) {
 }
 
 void do_item_remove(item *it) {
-    MEMCACHED_ITEM_REMOVE(ITEM_key(it), it->nkey, it->nbytes);
+#ifdef TIMETRACE
+//    bool record = ((void *)it == trace_item);
+//    if (record)
+//        timetrace_record("[do_item_remove] Before remove");
+#endif
+	MEMCACHED_ITEM_REMOVE(ITEM_key(it), it->nkey, it->nbytes);
     assert((it->it_flags & ITEM_SLABBED) == 0);
     assert(it->refcount > 0);
 
     if (refcount_decr(it) == 0) {
         item_free(it);
     }
+#ifdef TIMETRACE
+//    if (record)
+//        timetrace_record("[do_item_remove] After remove");
+#endif
 }
 
 /* Copy/paste to avoid adding two extra branches for all common calls, since
@@ -945,7 +954,12 @@ void item_stats_sizes(ADD_STAT add_stats, void *c) {
 
 /** wrapper around assoc_find which does the lazy expiration logic */
 item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c, const bool do_update) {
-    timetrace_record("Before do_item_get %d", c->sfd);
+#ifdef TIMETRACE
+    bool record = (c->sfd == trace_sfd);
+    if (record) {
+        timetrace_record("[do_item_get] Start do_item_get %d", c->sfd);
+    }
+#endif
     item *it = assoc_find(key, nkey, hv);
     if (it != NULL) {
         refcount_incr(it);
@@ -1019,6 +1033,11 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
                  * FETCHED tells if an item has ever been active.
                  */
                 if (settings.lru_segmented) {
+#ifdef TIMETRACE
+                    if (record) {
+                        timetrace_record("[do_item_get] Before do_update lru %d", c->sfd);
+                    }
+#endif
                     if ((it->it_flags & ITEM_ACTIVE) == 0) {
                         if ((it->it_flags & ITEM_FETCHED) == 0) {
                             it->it_flags |= ITEM_FETCHED;
@@ -1032,6 +1051,11 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
                             }
                         }
                     }
+#ifdef TIMETRACE
+                    if (record) {
+                        timetrace_record("[do_item_get] After do_update lru %d", c->sfd);
+                    }
+#endif
                 } else {
                     it->it_flags |= ITEM_FETCHED;
                     do_item_update(it);
@@ -1046,7 +1070,12 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
     /* For now this is in addition to the above verbose logging. */
     LOGGER_LOG(c->thread->l, LOG_FETCHERS, LOGGER_ITEM_GET, NULL, was_found, key, nkey,
                (it) ? ITEM_clsid(it) : 0);
-    timetrace_record("Finish do_item_get %d", c->sfd);
+
+#ifdef TIMETRACE
+    if (record) {
+        timetrace_record("[do_item_get] Finish do_item_get %d", c->sfd);
+    }
+#endif
     return it;
 }
 

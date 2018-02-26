@@ -20,6 +20,8 @@
 
 #define ITEMS_PER_ALLOC 64
 
+int trace_sfd;
+
 /* An item in the connection queue. */
 enum conn_queue_item_modes {
     queue_new_conn,   /* brand new connection. */
@@ -747,6 +749,8 @@ void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
 void memcached_thread_init(int nthreads, void *arg) {
     int         i;
     int         power;
+
+    trace_sfd = -1;
 
     for (i = 0; i < POWER_LARGEST; i++) {
         pthread_mutex_init(&lru_locks[i], NULL);

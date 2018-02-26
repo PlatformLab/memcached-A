@@ -1484,12 +1484,23 @@ static void complete_update_bin(conn *c) {
     protocol_binary_response_status eno = PROTOCOL_BINARY_RESPONSE_EINVAL;
     enum store_item_type ret = NOT_STORED;
     assert(c != NULL);
-
+#ifdef TIMETRACE
+    bool record = (c->sfd == trace_sfd);
+    if (record) {
+        timetrace_record("[complete_update_bin] Start, before stats.mutex: %d", c->sfd);
+    }
+#endif
     item *it = c->item;
 
     pthread_mutex_lock(&c->thread->stats.mutex);
     c->thread->stats.slab_stats[ITEM_clsid(it)].set_cmds++;
     pthread_mutex_unlock(&c->thread->stats.mutex);
+
+#ifdef TIMETRACE
+    if (record) {
+        timetrace_record("[complete_update_bin] After stats.mutex: %d", c->sfd);
+    }
+#endif
 
     /* We don't actually receive the trailing two characters in the bin
      * protocol, so we're going to just set them here */
@@ -1561,6 +1572,11 @@ static void complete_update_bin(conn *c) {
 
     item_remove(c->item);       /* release the c->item reference */
     c->item = 0;
+#ifdef TIMETRACE
+    if (record) {
+        timetrace_record("[complete_update_bin] Finish update bin: %d", c->sfd);
+    }
+#endif
 }
 
 static void write_bin_miss_response(conn *c, char *key, size_t nkey) {
@@ -1580,7 +1596,9 @@ static void write_bin_miss_response(conn *c, char *key, size_t nkey) {
 
 static void process_bin_get_or_touch(conn *c) {
     item *it;
-
+#ifdef TIMETRACE
+    bool record = (c->sfd == trace_sfd);
+#endif
     protocol_binary_response_get* rsp = (protocol_binary_response_get*)c->wbuf;
     char* key = binary_get_key(c);
     size_t nkey = c->binary_header.request.keylen;
@@ -1612,6 +1630,11 @@ static void process_bin_get_or_touch(conn *c) {
         uint16_t keylen = 0;
         uint32_t bodylen = sizeof(rsp->message.body) + (it->nbytes - 2);
 
+#ifdef TIMETRACE
+        if (record) {
+            timetrace_record("[process_bin_get] Before stats.mutex hit: %d", c->sfd);
+        }
+#endif
         pthread_mutex_lock(&c->thread->stats.mutex);
         if (should_touch) {
             c->thread->stats.touch_cmds++;
@@ -1621,7 +1644,11 @@ static void process_bin_get_or_touch(conn *c) {
             c->thread->stats.lru_hits[it->slabs_clsid]++;
         }
         pthread_mutex_unlock(&c->thread->stats.mutex);
-
+#ifdef TIMETRACE
+        if (record) {
+            timetrace_record("[process_bin_get] After stats.mutex hit: %d", c->sfd);
+        }
+#endif
         if (should_touch) {
             MEMCACHED_COMMAND_TOUCH(c->sfd, ITEM_key(it), it->nkey,
                                     it->nbytes, ITEM_get_cas(it));
@@ -1703,6 +1730,11 @@ static void process_bin_get_or_touch(conn *c) {
     }
 
     if (failed) {
+#ifdef TIMETRACE
+        if (record) {
+            timetrace_record("[process_bin_get] Before stats.mutex miss: %d", c->sfd);
+        }
+#endif
         pthread_mutex_lock(&c->thread->stats.mutex);
         if (should_touch) {
             c->thread->stats.touch_cmds++;
@@ -1712,6 +1744,11 @@ static void process_bin_get_or_touch(conn *c) {
             c->thread->stats.get_misses++;
         }
         pthread_mutex_unlock(&c->thread->stats.mutex);
+#ifdef TIMETRACE
+        if (record) {
+            timetrace_record("[process_bin_get] After stats.mutex miss: %d", c->sfd);
+        }
+#endif
 
         if (should_touch) {
             MEMCACHED_COMMAND_TOUCH(c->sfd, key, nkey, -1, 0);
@@ -2784,12 +2821,16 @@ static int _store_item_copy_data(int comm, item *old_it, item *new_it, item *add
  * Returns the state of storage.
  */
 enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t hv) {
-    timetrace_record("Before do_store_item %d", c->sfd);
-    char *key = ITEM_key(it);
+#ifdef TIMETRACE
+    bool record = (c->sfd == trace_sfd);
+    if (record) {
+        timetrace_record("[do_store_item] Before do_store_item of %d", c->sfd);
+    }
+#endif
+	char *key = ITEM_key(it);
     item *old_it = do_item_get(key, it->nkey, hv, c, DONT_UPDATE);
     enum store_item_type stored = NOT_STORED;
 
-    timetrace_record("Finish item_get in do_store_item %d", c->sfd);
     item *new_it = NULL;
     uint32_t flags;
 
@@ -2885,11 +2926,26 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
         }
 
         if (stored == NOT_STORED && failed_alloc == 0) {
+#ifdef TIMETRACE
+			if (record) {
+				timetrace_record("[do_store_item] Before STORAGE_delete %d", c->sfd);
+			}
+#endif
             if (old_it != NULL) {
                 STORAGE_delete(c->thread->storage, old_it);
                 item_replace(old_it, it, hv);
+#ifdef TIMETRACE
+			if (record) {
+				timetrace_record("[do_store_item] After STORAGE_delete and replace %d", c->sfd);
+			}
+#endif
             } else {
                 do_item_link(it, hv);
+#ifdef TIMETRACE
+			if (record) {
+				timetrace_record("[do_store_item] AFter do_item_link %d", c->sfd);
+			}
+#endif
             }
 
             c->cas = ITEM_get_cas(it);
@@ -2897,18 +2953,32 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
             stored = STORED;
         }
     }
+#ifdef TIMETRACE
+    if (record) {
+        timetrace_record("[do_store_item] Before do_item_remove %d", c->sfd);
+    }
+#endif
 
     if (old_it != NULL)
         do_item_remove(old_it);         /* release our reference */
     if (new_it != NULL)
         do_item_remove(new_it);
+#ifdef TIMETRACE
+    if (record) {
+        timetrace_record("[do_store_item] After do_item_remove, before get_cas %d", c->sfd);
+    }
+#endif
 
     if (stored == STORED) {
         c->cas = ITEM_get_cas(it);
     }
     LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE, NULL,
             stored, comm, ITEM_key(it), it->nkey, it->exptime, ITEM_clsid(it));
-    timetrace_record("After do_store_item %d", c->sfd);
+#ifdef TIMETRACE
+    if (record) {
+        timetrace_record("[do_store_item] After do_store_item %d", c->sfd);
+    }
+#endif
     return stored;
 }
 
@@ -5144,19 +5214,36 @@ static enum try_read_result try_read_network(conn *c) {
 
 static bool update_event(conn *c, const int new_flags) {
     assert(c != NULL);
+#ifdef TIMETRACE
+    // uint64_t start_time = rdtsc();
+    bool record = (c->sfd == trace_sfd);
+    if (record) {
+        timetrace_record("[update_event] Start update event: %d", c->sfd);
+    }
+#endif
 
     struct event_base *base = c->event.ev_base;
     if (c->ev_flags == new_flags)
         return true;
-    timetrace_record("Before event_del in update: %d", c->sfd);
     if (event_del(&c->event) == -1) return false;
-    timetrace_record("After event_del in update: %d", c->sfd);
-    event_set(&c->event, c->sfd, new_flags, event_handler, (void *)c);
+
+#ifdef TIMETRACE
+    if (record) {
+        timetrace_record("[update_event] After event_del in update: %d", c->sfd);
+    }
+#endif
+
+	event_set(&c->event, c->sfd, new_flags, event_handler, (void *)c);
     event_base_set(base, &c->event);
     c->ev_flags = new_flags;
-    timetrace_record("Before event_add in update: %d", c->sfd);
     if (event_add(&c->event, 0) == -1) return false;
-    timetrace_record("After event_add in update: %d", c->sfd);
+#ifdef TIMETRACE
+    // uint64_t end_time = rdtsc();
+    // uint32_t delta_time = (end_time - start_time)/2;
+    if (record) {
+        timetrace_record("[update_event] Finish update event, after event_add: %d", c->sfd);
+    }
+#endif
     return true;
 }
 
@@ -5214,6 +5301,9 @@ void do_accept_new_conns(const bool do_accept) {
  */
 static enum transmit_result transmit(conn *c) {
     assert(c != NULL);
+#ifdef TIMETRACE
+    bool record = (c->sfd == trace_sfd);
+#endif
 
     if (c->msgcurr < c->msgused &&
             c->msglist[c->msgcurr].msg_iovlen == 0) {
@@ -5223,13 +5313,27 @@ static enum transmit_result transmit(conn *c) {
     if (c->msgcurr < c->msgused) {
         ssize_t res;
         struct msghdr *m = &c->msglist[c->msgcurr];
-
+#ifdef TIMETRACE
+        if (record) {
+            timetrace_record("[transmit] Before sendmsg %d", c->sfd);
+        }
+#endif
         res = sendmsg(c->sfd, m, 0);
+#ifdef TIMETRACE
+            if (record) {
+                timetrace_record("[transmit] After sendmsg, before stats.mutex %d", c->sfd);
+            }
+#endif
         if (res > 0) {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.bytes_written += res;
             pthread_mutex_unlock(&c->thread->stats.mutex);
 
+#ifdef TIMETRACE
+            if (record) {
+                timetrace_record("[transmit] After stats.mutex %d", c->sfd);
+            }
+#endif
             /* We've written some of the data. Remove the completed
                iovec entries from the list of pending writes. */
             while (m->msg_iovlen > 0 && res >= m->msg_iov->iov_len) {
@@ -5355,9 +5459,16 @@ static int read_into_chunked_item(conn *c) {
 }
 
 static void drive_machine(conn *c) {
+#ifdef TIMETRACE
+    bool record = false;
+    if (c->sfd == trace_sfd) {
+        record = true;
+        timetrace_record("[drive_machine] Start in drive machine %d", c->sfd);
+    }
+    // uint64_t start_time = rdtsc();
+#endif
+
     bool stop = false;
-    uint64_t start_time = rdtsc();
-    timetrace_record("Start drive_machine %d", c->sfd);
     int sfd;
     socklen_t addrlen;
     struct sockaddr_storage addr;
@@ -5440,6 +5551,11 @@ static void drive_machine(conn *c) {
 
             conn_set_state(c, conn_read);
             stop = true;
+#ifdef TIMETRACE
+            if (record) {
+                timetrace_record("[drive_machine] After conn_waiting: %d", c->sfd);
+            }
+#endif
             break;
 
         case conn_read:
@@ -5459,6 +5575,11 @@ static void drive_machine(conn *c) {
                 /* State already set by try_read_network */
                 break;
             }
+#ifdef TIMETRACE
+            if (record) {
+                timetrace_record("[drive_machine] After conn_read: %d", c->sfd);
+            }
+#endif
             break;
 
         case conn_parse_cmd :
@@ -5466,7 +5587,11 @@ static void drive_machine(conn *c) {
                 /* wee need more data! */
                 conn_set_state(c, conn_waiting);
             }
-
+#ifdef TIMETRACE
+            if (record) {
+                timetrace_record("[drive_machine] After conn_parse_cmd: %d", c->sfd);
+            }
+#endif
             break;
 
         case conn_new_cmd:
@@ -5496,11 +5621,21 @@ static void drive_machine(conn *c) {
                 }
                 stop = true;
             }
+#ifdef TIMETRACE
+            if (record) {
+                timetrace_record("[drive_machine] After conn_new_cmd: %d", c->sfd);
+            }
+#endif
             break;
 
         case conn_nread:
             if (c->rlbytes == 0) {
                 complete_nread(c);
+#ifdef TIMETRACE
+                if (record) {
+                    timetrace_record("[drive_machine] Complete conn_nread: %d", c->sfd);
+                }
+#endif
                 break;
             }
 
@@ -5700,6 +5835,11 @@ static void drive_machine(conn *c) {
                 stop = true;
                 break;
             }
+#ifdef TIMETRACE
+            if (record) {
+                timetrace_record("[drive_machine] Complete conn_mwrite: %d", c->sfd);
+            }
+#endif
             break;
 
         case conn_closing:
@@ -5724,9 +5864,13 @@ static void drive_machine(conn *c) {
             break;
         }
     }
-    uint64_t end_time = rdtsc();
-    uint32_t delta_time = (end_time - start_time)/2;
-    timetrace_record("Finish drive_machine %d, %u ns", c->sfd, delta_time);
+#ifdef TIMETRACE
+    // uint64_t end_time = rdtsc();
+    // uint32_t delta_ns = (end_time - start_time) / 2;
+    if (record) {
+        timetrace_record("[drive_machine] End of drive machine %d", c->sfd);
+    }
+#endif
     return;
 }
 
@@ -5745,7 +5889,10 @@ void event_handler(const int fd, const short which, void *arg) {
         conn_close(c);
         return;
     }
-
+	if ((c->state == conn_new_cmd) && (trace_sfd == -1)) {
+		trace_sfd = fd; // Only track one client
+		fprintf(stderr, "trace sfd: %d \n", trace_sfd);
+	}
     drive_machine(c);
 
     /* wait for next event */
