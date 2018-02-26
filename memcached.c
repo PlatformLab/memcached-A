@@ -6672,7 +6672,9 @@ static int memcached_main () {
     int retval = EXIT_SUCCESS;
 
     timetrace_set_keepoldevents(true);
+#ifdef TIMETRACE
     timetrace_set_output_filename("timetrace_scheme1.log");
+#endif
     timetrace_record("Start of main event loop");
     // if (event_base_loop(main_base, 0) != 0) {
     //     retval = EXIT_FAILURE;
