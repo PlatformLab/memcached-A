@@ -956,6 +956,11 @@ void item_stats_sizes(ADD_STAT add_stats, void *c) {
 item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c, const bool do_update) {
 #ifdef TIMETRACE
     bool record = (c->sfd == trace_sfd);
+#ifdef SINGLECORE
+    int coreid = arachne_thread_getid();
+    record = (record && (coreid == trace_coreid));
+#endif
+
     if (record) {
         timetrace_record("[do_item_get] Start do_item_get %d", c->sfd);
     }

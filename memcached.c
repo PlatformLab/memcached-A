@@ -1488,6 +1488,10 @@ static void complete_update_bin(conn *c) {
     assert(c != NULL);
 #ifdef TIMETRACE
     bool record = (c->sfd == trace_sfd);
+#ifdef SINGLECORE
+    int coreid = arachne_thread_getid();
+    record = (record && (coreid == trace_coreid));
+#endif
     if (record) {
         timetrace_record("[complete_update_bin] Start, before stats.mutex: %d", c->sfd);
     }
@@ -1602,6 +1606,11 @@ static void process_bin_get_or_touch(conn *c) {
     item *it;
 #ifdef TIMETRACE
     bool record = (c->sfd == trace_sfd);
+#ifdef SINGLECORE
+    int coreid = arachne_thread_getid();
+    record = (record && (coreid == trace_coreid));
+#endif
+
 #endif
     protocol_binary_response_get* rsp = (protocol_binary_response_get*)c->wbuf;
     char* key = binary_get_key(c);
@@ -2827,6 +2836,10 @@ static int _store_item_copy_data(int comm, item *old_it, item *new_it, item *add
 enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t hv) {
 #ifdef TIMETRACE
     bool record = (c->sfd == trace_sfd);
+#ifdef SINGLECORE
+    int coreid = arachne_thread_getid();
+    record = (record && (coreid == trace_coreid));
+#endif
     if (record) {
         timetrace_record("[do_store_item] Before do_store_item of %d", c->sfd);
     }
@@ -5222,6 +5235,11 @@ static bool update_event(conn *c, const int new_flags) {
 #ifdef TIMETRACE
     // uint64_t start_time = rdtsc();
     bool record = (c->sfd == trace_sfd);
+#ifdef SINGLECORE
+    int coreid = arachne_thread_getid();
+    record = (record && (coreid == trace_coreid));
+#endif
+
     if (record) {
         timetrace_record("[update_event] Start update event: %d", c->sfd);
     }
@@ -5317,6 +5335,11 @@ static enum transmit_result transmit(conn *c) {
 
 #ifdef TIMETRACE
     bool record = (c->sfd == trace_sfd);
+#ifdef SINGLECORE
+    int coreid = arachne_thread_getid();
+    record = (record && (coreid == trace_coreid));
+#endif
+
 #endif
 
     if (c->msgcurr < c->msgused &&
@@ -5479,7 +5502,17 @@ static void* drive_machine(void *vc) {
     bool record = false;
     if (c->sfd == trace_sfd) {
         record = true;
-        timetrace_record("[drive_machine] Start in drive machine %d", c->sfd);
+        if (trace_coreid == -1) {
+            trace_coreid = arachne_thread_getid();
+            fprintf(stderr, "coreId is : %d \n", trace_coreid);
+        }
+#ifdef SINGLECORE
+        int coreid = arachne_thread_getid();
+        record = (record && (coreid == trace_coreid));
+#endif
+        if (record) {
+            timetrace_record("[drive_machine] Start in drive machine %d", c->sfd);
+        }
     }
     // uint64_t start_time = rdtsc();
 #endif

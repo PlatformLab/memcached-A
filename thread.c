@@ -22,6 +22,7 @@
 
 bool handled_event;
 int trace_sfd;
+int trace_coreid;
 
 /* An item in the connection queue. */
 enum conn_queue_item_modes {
@@ -775,6 +776,7 @@ void memcached_thread_init(int nthreads, void *arg) {
     int         power;
 
     trace_sfd = -1;
+    trace_coreid = -1;
 
     for (i = 0; i < POWER_LARGEST; i++) {
         pthread_mutex_init(&lru_locks[i], NULL);
