@@ -1073,11 +1073,19 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
     if (settings.verbose > 2)
         fprintf(stderr, "\n");
     /* For now this is in addition to the above verbose logging. */
+#ifdef PMUTEX
     LOGGER_LOG(c->thread->l, LOG_FETCHERS, LOGGER_ITEM_GET, NULL, was_found, key, nkey,
                (it) ? ITEM_clsid(it) : 0);
+#else
+    if (settings.verbose > 2) {
+        LOGGER_LOG(c->thread->l, LOG_FETCHERS, LOGGER_ITEM_GET, NULL, was_found, key, nkey,
+                   (it) ? ITEM_clsid(it) : 0);
+    }
+#endif
+
 #ifdef TIMETRACE
     if (record) {
-        timetrace_record("[do_item_get] Finish do_item_get %d", c->sfd);
+        timetrace_record("[do_item_get] Finish do_item_get and logger %d", c->sfd);
     }
 #endif
     return it;

@@ -56,7 +56,7 @@ memcached_SOURCES += extstore.c extstore.h \
 endif
 
 memcached_debug_SOURCES = $(memcached_SOURCES)
-memcached_CPPFLAGS = -DNDEBUG -DTIMETRACE -DNTIMETRACE_HANDLE -DSINGLECORE
+memcached_CPPFLAGS = -DNDEBUG -DTIMETRACE -DNTIMETRACE_HANDLE -DSINGLECORE -DPMUTEX
 memcached_debug_LDADD = @PROFILER_LDFLAGS@
 memcached_debug_CFLAGS = @PROFILER_FLAGS@
 

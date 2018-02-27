@@ -1498,10 +1498,11 @@ static void complete_update_bin(conn *c) {
 #endif
 
     item *it = c->item;
-
+#ifdef PMUTEX
     pthread_mutex_lock(&c->thread->stats.mutex);
     c->thread->stats.slab_stats[ITEM_clsid(it)].set_cmds++;
     pthread_mutex_unlock(&c->thread->stats.mutex);
+#endif
 
 #ifdef TIMETRACE
     if (record) {
@@ -1648,6 +1649,8 @@ static void process_bin_get_or_touch(conn *c) {
             timetrace_record("[process_bin_get] Before stats.mutex hit: %d", c->sfd);
         }
 #endif
+
+#ifdef PMUTEX
         pthread_mutex_lock(&c->thread->stats.mutex);
         if (should_touch) {
             c->thread->stats.touch_cmds++;
@@ -1657,6 +1660,8 @@ static void process_bin_get_or_touch(conn *c) {
             c->thread->stats.lru_hits[it->slabs_clsid]++;
         }
         pthread_mutex_unlock(&c->thread->stats.mutex);
+#endif
+
 #ifdef TIMETRACE
         if (record) {
             timetrace_record("[process_bin_get] After stats.mutex hit: %d", c->sfd);
@@ -1748,6 +1753,8 @@ static void process_bin_get_or_touch(conn *c) {
             timetrace_record("[process_bin_get] Before stats.mutex miss: %d", c->sfd);
         }
 #endif
+
+#ifdef PMUTEX
         pthread_mutex_lock(&c->thread->stats.mutex);
         if (should_touch) {
             c->thread->stats.touch_cmds++;
@@ -1757,6 +1764,8 @@ static void process_bin_get_or_touch(conn *c) {
             c->thread->stats.get_misses++;
         }
         pthread_mutex_unlock(&c->thread->stats.mutex);
+#endif
+
 #ifdef TIMETRACE
         if (record) {
             timetrace_record("[process_bin_get] After stats.mutex miss: %d", c->sfd);
@@ -2422,6 +2431,14 @@ static void dispatch_bin_command(conn *c) {
 }
 
 static void process_bin_update(conn *c) {
+#ifdef TIMETRACE
+    bool record = (c->sfd == trace_sfd);
+#ifdef SINGLECORE
+    int coreid = arachne_thread_getid();
+    record = (record && (coreid == trace_coreid));
+#endif
+
+#endif
     char *key;
     int nkey;
     int vlen;
@@ -2460,8 +2477,18 @@ static void process_bin_update(conn *c) {
         stats_prefix_record_set(key, nkey);
     }
 
+#ifdef TIMETRACE
+    if (record) {
+        timetrace_record("[process_bin_update] Before item_alloc %d", c->sfd);
+    }
+#endif
     it = item_alloc(key, nkey, req->message.body.flags,
             realtime(req->message.body.expiration), vlen+2);
+#ifdef TIMETRACE
+    if (record) {
+        timetrace_record("[process_bin_update] After item_alloc %d", c->sfd);
+    }
+#endif
 
     if (it == 0) {
         enum store_item_type status;
@@ -2475,9 +2502,17 @@ static void process_bin_update(conn *c) {
             status = NO_MEMORY;
         }
         /* FIXME: losing c->cmd since it's translated below. refactor? */
+#ifdef PMUTEX
         LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE,
                 NULL, status, 0, key, nkey, req->message.body.expiration,
                 ITEM_clsid(it));
+#else
+        if (settings.verbose > 2) {
+            LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE,
+                       NULL, status, 0, key, nkey, req->message.body.expiration,
+                       ITEM_clsid(it));
+        }
+#endif
 
         /* Avoid stale data persisting in cache because we failed alloc.
          * Unacceptable for SET. Anywhere else too? */
@@ -2960,7 +2995,7 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
                 do_item_link(it, hv);
 #ifdef TIMETRACE
     if (record) {
-        timetrace_record("[do_store_item] AFter do_item_link %d", c->sfd);
+        timetrace_record("[do_store_item] After do_item_link %d", c->sfd);
     }
 #endif
             }
@@ -2990,11 +3025,15 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
     if (stored == STORED) {
         c->cas = ITEM_get_cas(it);
     }
+
+#ifdef PMUTEX
     LOGGER_LOG(c->thread->l, LOG_MUTATIONS, LOGGER_ITEM_STORE, NULL,
             stored, comm, ITEM_key(it), it->nkey, it->exptime, ITEM_clsid(it));
+#endif
+
 #ifdef TIMETRACE
     if (record) {
-        timetrace_record("[do_store_item] After do_store_item %d", c->sfd);
+        timetrace_record("[do_store_item] After do_store_item and logger %d", c->sfd);
     }
 #endif
     return stored;
@@ -5169,6 +5208,14 @@ static enum try_read_result try_read_udp(conn *c) {
  * @return enum try_read_result
  */
 static enum try_read_result try_read_network(conn *c) {
+#ifdef TIMETRACE
+     bool record = (c->sfd == trace_sfd);
+#ifdef SINGLECORE
+    int coreid = arachne_thread_getid();
+    record = (record && (coreid == trace_coreid));
+#endif
+
+#endif
     enum try_read_result gotdata = READ_NO_DATA_RECEIVED;
     int res;
     int num_allocs = 0;
@@ -5206,9 +5253,21 @@ static enum try_read_result try_read_network(conn *c) {
         int avail = c->rsize - c->rbytes;
         res = read(c->sfd, c->rbuf + c->rbytes, avail);
         if (res > 0) {
+#ifdef TIMETRACE
+            if (record) {
+                timetrace_record("[try_read_network] Before stats.mutex %d", c->sfd);
+            }
+#endif
+#ifdef PMUTEX
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.bytes_read += res;
             pthread_mutex_unlock(&c->thread->stats.mutex);
+#endif
+#ifdef TIMETRACE
+            if (record) {
+                timetrace_record("[try_read_network] After stats.mutex %d", c->sfd);
+            }
+#endif
             gotdata = READ_DATA_RECEIVED;
             c->rbytes += res;
             if (res == avail) {
@@ -5362,9 +5421,11 @@ static enum transmit_result transmit(conn *c) {
             }
 #endif
         if (res > 0) {
+#ifdef PMUTEX
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.bytes_written += res;
             pthread_mutex_unlock(&c->thread->stats.mutex);
+#endif
 
 #ifdef TIMETRACE
             if (record) {
@@ -5417,6 +5478,14 @@ static enum transmit_result transmit(conn *c) {
  * Also, benchmark using readv's.
  */
 static int read_into_chunked_item(conn *c) {
+#ifdef TIMETRACE
+     bool record = (c->sfd == trace_sfd);
+#ifdef SINGLECORE
+    int coreid = arachne_thread_getid();
+    record = (record && (coreid == trace_coreid));
+#endif
+
+#endif
     int total = 0;
     int res;
     assert(c->rcurr != c->ritem);
@@ -5465,9 +5534,21 @@ static int read_into_chunked_item(conn *c) {
             res = read(c->sfd, ch->data + ch->used,
                     (unused > c->rlbytes ? c->rlbytes : unused));
             if (res > 0) {
+#ifdef TIMETRACE
+            if (record) {
+                timetrace_record("[read_into_chunked_item] Before stats.mutex %d", c->sfd);
+            }
+#endif
+#ifdef PMUTEX
                 pthread_mutex_lock(&c->thread->stats.mutex);
                 c->thread->stats.bytes_read += res;
                 pthread_mutex_unlock(&c->thread->stats.mutex);
+#endif
+#ifdef TIMETRACE
+            if (record) {
+                timetrace_record("[read_into_chunked_item] After stats.mutex %d", c->sfd);
+            }
+#endif
                 ch->used += res;
                 total += res;
                 c->rlbytes -= res;
@@ -5652,9 +5733,23 @@ static void* drive_machine(void *vc) {
             if (nreqs >= 0) {
                 reset_cmd_handler(c);
             } else {
+#ifdef TIMETRACE
+            if (record) {
+                timetrace_record("[drive_machine] Before conn_new_cmd mutex: %d", c->sfd);
+            }
+#endif
+
+#ifdef PMUTEX
                 pthread_mutex_lock(&c->thread->stats.mutex);
                 c->thread->stats.conn_yields++;
                 pthread_mutex_unlock(&c->thread->stats.mutex);
+#endif
+#ifdef TIMETRACE
+            if (record) {
+                timetrace_record("[drive_machine] After conn_new_cmd mutex: %d", c->sfd);
+            }
+#endif
+
                 if (c->rbytes > 0) {
                     /* We have already read in data into the input buffer,
                        so libevent will most likely not signal read events
@@ -5687,7 +5782,7 @@ static void* drive_machine(void *vc) {
             }
 #ifdef TIMETRACE
             if (record) {
-                timetrace_record("[drive_machine] After conn_new_cmd: %d", c->sfd);
+                timetrace_record("[drive_machine] Finish conn_new_cmd: %d", c->sfd);
             }
 #endif
             break;
@@ -5731,9 +5826,23 @@ static void* drive_machine(void *vc) {
                 /*  now try reading from the socket */
                 res = read(c->sfd, c->ritem, c->rlbytes);
                 if (res > 0) {
+#ifdef TIMETRACE
+                    if (record) {
+                        timetrace_record("[drive_machine] Before conn_nread mutex: %d", c->sfd);
+                    }
+#endif
+
+#ifdef PMUTEX
                     pthread_mutex_lock(&c->thread->stats.mutex);
                     c->thread->stats.bytes_read += res;
                     pthread_mutex_unlock(&c->thread->stats.mutex);
+#endif
+#ifdef TIMETRACE
+                    if (record) {
+                        timetrace_record("[drive_machine] After conn_nread mutex: %d", c->sfd);
+                    }
+#endif
+
                     if (c->rcurr == c->ritem) {
                         c->rcurr += res;
                     }
@@ -5804,9 +5913,11 @@ static void* drive_machine(void *vc) {
             /*  now try reading from the socket */
             res = read(c->sfd, c->rbuf, c->rsize > c->sbytes ? c->sbytes : c->rsize);
             if (res > 0) {
+#ifdef PMUTEX
                 pthread_mutex_lock(&c->thread->stats.mutex);
                 c->thread->stats.bytes_read += res;
                 pthread_mutex_unlock(&c->thread->stats.mutex);
+#endif
                 c->sbytes -= res;
                 break;
             }
