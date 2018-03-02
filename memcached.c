@@ -8072,7 +8072,7 @@ int main(int argc, char** argv) {
     /* If libevent version is larger/equal to 2.0.2-alpha, use newer version */
     struct event_config *ev_config;
     ev_config = event_config_new();
-    event_config_set_flag(ev_config, EVENT_BASE_FLAG_NOLOCK);
+    // event_config_set_flag(ev_config, EVENT_BASE_FLAG_NOLOCK);
     main_base = event_base_new_with_config(ev_config);
     event_config_free(ev_config);
 #else

@@ -319,7 +319,7 @@ static void setup_thread(LIBEVENT_THREAD *me) {
 #if defined(LIBEVENT_VERSION_NUMBER) && LIBEVENT_VERSION_NUMBER >= 0x02000101
     struct event_config *ev_config;
     ev_config = event_config_new();
-    event_config_set_flag(ev_config, EVENT_BASE_FLAG_NOLOCK);
+    // event_config_set_flag(ev_config, EVENT_BASE_FLAG_NOLOCK);
     me->base = event_base_new_with_config(ev_config);
     event_config_free(ev_config);
 #else
@@ -401,7 +401,7 @@ static void *worker_libevent(void *arg) {
     uint64_t print_prev = prev;
     while (1) {
         handled_event = false;
-        ret = event_base_loop(me->base, EVLOOP_NONBLOCK);
+        ret = event_base_loop(me->base, 0);
         curr = rdtsc();
         uint64_t delta = curr - prev;
         if (handled_event) {
