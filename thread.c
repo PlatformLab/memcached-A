@@ -392,7 +392,7 @@ static void *worker_libevent(void *arg) {
 
     // event_base_loop(me->base, 0);
     while (1) {
-        ret = event_base_loop(me->base, EVLOOP_NONBLOCK);
+        ret = event_base_loop(me->base, 0);
         if (ret != 0) {
             break;
         }
