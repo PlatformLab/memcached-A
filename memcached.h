@@ -431,6 +431,7 @@ extern struct settings settings;
 extern bool handled_event;
 extern int trace_sfd;
 extern int trace_coreid;
+extern int nprocs;
 
 #define ITEM_LINKED 1
 #define ITEM_CAS 2

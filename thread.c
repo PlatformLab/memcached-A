@@ -1,4 +1,4 @@
-// 2.0GHzz/* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
+/* -*- Mode: C; tab-width: 4; c-basic-offset: 4; indent-tabs-mode: nil -*- */
 /*
  * Thread management for memcached.
  */
@@ -13,16 +13,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
+#include <sys/sysinfo.h>
 
 #ifdef __sun
 #include <atomic.h>
 #endif
 
 #define ITEMS_PER_ALLOC 64
+#define DIGIT_NUM
 
 bool handled_event;
 int trace_sfd;
 int trace_coreid;
+int nprocs; // Hardware concurrency, number of physical kernel threads
 
 /* An item in the connection queue. */
 enum conn_queue_item_modes {
@@ -369,6 +372,54 @@ static void setup_thread(LIBEVENT_THREAD *me) {
 }
 
 /*
+ * Set up Arachne thread local resources from nthreads to nprocs.
+ *
+ * This can solve the problem that multiple Arachne threads are sharing the
+ * same thread local variable and mutex locks.  Threads after nthreads only
+ * have their own stats, lru buffer, and logger.  They will share the same
+ * notification fd and event_base as threads[nthreads-1].
+ *
+ * Thread local logger and lru buffer need to be initialized when we first use
+ * them. Otherwise, we cannot set thread local key.
+ */
+static void setup_arachne_resources(int nthreads) {
+    if (nthreads < 1) {
+        return;
+    }
+    LIBEVENT_THREAD *base_thread = &threads[nthreads-1];
+
+    int i;
+    for (i = nthreads; i < nprocs; ++i) {
+        LIBEVENT_THREAD *me = &threads[i];
+        me->notify_receive_fd = base_thread->notify_receive_fd;
+        me->notify_send_fd = base_thread->notify_send_fd;
+#ifdef EXTSTORE
+        me->storage = base_thread->storage;
+#endif
+        me->base = base_thread->base;
+        me->new_conn_queue = base_thread->new_conn_queue;
+        if (pthread_mutex_init(&me->stats.mutex, NULL) != 0) {
+            perror("Failed to initialize mutex");
+            exit(EXIT_FAILURE);
+        }
+        me->suffix_cache = cache_create("suffix", SUFFIX_SIZE, sizeof(char*),
+                                        NULL, NULL);
+        if (me->suffix_cache == NULL) {
+            fprintf(stderr, "Failed to create suffix cache\n");
+            exit(EXIT_FAILURE);
+        }
+#ifdef EXTSTORE
+        me->io_cache = cache_create("io", sizeof(io_wrap), sizeof(char*),
+                                    NULL, NULL);
+        if (me->io_cache == NULL) {
+            fprintf(stderr, "Failed to create IO object cache\n");
+            exit(EXIT_FAILURE);
+        }
+#endif
+    }
+}
+
+/*
  * Worker thread: main event loop
  */
 static void *worker_libevent(void *arg) {
@@ -434,10 +485,12 @@ static void *worker_libevent(void *arg) {
 static void thread_libevent_process(int fd, short which, void *arg) {
     LIBEVENT_THREAD *me = arg;
     CQ_ITEM *item;
-    char buf[1];
+    char buf[4];
     conn *c;
     unsigned int timeout_fd;
+    int tid;
 
+    memset(buf, 0, sizeof(buf));
     if (read(fd, buf, 1) != 1) {
         if (settings.verbose > 0)
             fprintf(stderr, "Can't read from libevent pipe\n");
@@ -468,7 +521,15 @@ static void thread_libevent_process(int fd, short which, void *arg) {
                         close(item->sfd);
                     }
                 } else {
-                    c->thread = me;
+                    if (read(fd, buf, 3) != 3) {
+                        fprintf(stderr, "Can't read tid from libevent pipe, %s\n",
+                                buf);
+                        return;
+                    }
+                    tid = atoi(buf);
+                    fprintf(stderr, "Read tid: %d from libevent pipe %s\n", tid, buf);
+                    // c->thread = me;
+                    c->thread = &threads[tid];
                 }
                 break;
 
@@ -495,7 +556,7 @@ static void thread_libevent_process(int fd, short which, void *arg) {
 }
 
 /* Which thread we assigned a connection to most recently. */
-static int last_thread = -1;
+static int last_thread = 0;
 
 /*
  * Dispatches a new connection to another thread. This is only ever called
@@ -505,7 +566,7 @@ static int last_thread = -1;
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
                        int read_buffer_size, enum network_transport transport) {
     CQ_ITEM *item = cqi_new();
-    char buf[1];
+    char buf[32];
     if (item == NULL) {
         close(sfd);
         /* given that malloc failed this may also fail, but let's try */
@@ -513,7 +574,11 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
         return ;
     }
 
-    int tid = (last_thread + 1) % settings.num_threads;
+    // int tid = (last_thread + 1) % settings.num_threads;
+    // tid starts from nthreads to (nprocs - 1)
+    int nthreads = settings.num_threads;
+    int tid = (last_thread - nthreads + 1) % (nprocs - nthreads) + nthreads;
+    fprintf(stderr, "tid is: %d \n", tid);
 
     LIBEVENT_THREAD *thread = threads + tid;
 
@@ -530,7 +595,11 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
 
     MEMCACHED_CONN_DISPATCH(sfd, thread->thread_id);
     buf[0] = 'c';
-    if (write(thread->notify_send_fd, buf, 1) != 1) {
+    sprintf(&buf[1], "%03d", tid);
+    fprintf(stderr, "Write notify buf is: %s \n", buf);
+    // Notice that we write 'c' + tid (3 digits, lead by 0)
+    // So that we can use the correct thread struct for that connection.
+    if (write(thread->notify_send_fd, buf, 4) != 4) {
         perror("Writing to thread notify pipe");
     }
 }
@@ -777,6 +846,14 @@ void memcached_thread_init(int nthreads, void *arg) {
 
     trace_sfd = -1;
     trace_coreid = -1;
+    nprocs = get_nprocs();
+    if (nprocs <= nthreads) {
+        fprintf(stderr, "Num of threads cannot exceed num of cores! %d vs. %d",
+                nthreads, nprocs);
+        exit(EXIT_FAILURE);
+    } else {
+        fprintf(stderr, "Hardware concurrency: %d cores \n", nprocs);
+    }
 
     for (i = 0; i < POWER_LARGEST; i++) {
         pthread_mutex_init(&lru_locks[i], NULL);
@@ -827,7 +904,8 @@ void memcached_thread_init(int nthreads, void *arg) {
         pthread_mutex_init(&item_locks[i], NULL);
     }
 
-    threads = calloc(nthreads, sizeof(LIBEVENT_THREAD));
+    // threads = calloc(nthreads, sizeof(LIBEVENT_THREAD));
+    threads = calloc(nprocs, sizeof(LIBEVENT_THREAD));
     if (! threads) {
         perror("Can't allocate thread descriptors");
         exit(1);
@@ -854,6 +932,9 @@ void memcached_thread_init(int nthreads, void *arg) {
     for (i = 0; i < nthreads; i++) {
         create_worker(worker_libevent, &threads[i]);
     }
+
+    /* Fill up other threads structure, preparing for Arachne workers */
+    setup_arachne_resources(nthreads);
 
     /* Wait for all the threads to set themselves up before returning. */
     pthread_mutex_lock(&init_lock);
