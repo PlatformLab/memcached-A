@@ -5613,6 +5613,26 @@ static void* drive_machine(void *vc) {
 
     assert(c != NULL);
 
+    /* Skip the connection dispatcher thread */
+    if (c->state != conn_listening) {
+        LIBEVENT_THREAD *thread = GET_THREAD();
+        if (thread == NULL) {
+            assign_thread();
+            thread = GET_THREAD();
+            assert(thread != NULL);
+            if (thread->l == NULL) {
+                thread->l = logger_create();
+            }
+            if (thread->lru_bump_buf == NULL) {
+                thread->lru_bump_buf = item_lru_bump_buf_create();
+            }
+            if ((thread->l == NULL) || (thread->lru_bump_buf == NULL)) {
+                abort();
+            }
+        }
+        c->thread = thread;
+    }
+
     while (!stop) {
 
         switch(c->state) {
@@ -5714,18 +5734,6 @@ static void* drive_machine(void *vc) {
             break;
 
         case conn_parse_cmd :
-            if (c->thread->l == NULL) {
-                c->thread->l = logger_create();
-                fprintf(stderr, "Create logger!\n");
-            }
-            if (c->thread->lru_bump_buf == NULL) {
-                c->thread->lru_bump_buf = item_lru_bump_buf_create();
-                fprintf(stderr, "Create lru bump buffer!\n");
-            }
-            if ((c->thread->l == NULL) || (c->thread->lru_bump_buf == NULL)) {
-                abort();
-            }
-
             if (try_read_command(c) == 0) {
                 /* wee need more data! */
                 conn_set_state(c, conn_waiting);

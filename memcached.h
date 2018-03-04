@@ -143,6 +143,9 @@
 #define APPEND_NUM_STAT(num, name, fmt, val) \
     APPEND_NUM_FMT_STAT("%d:%s", num, name, fmt, val)
 
+/* Get thread local LIBEVENT_THREAD* pointer */
+#define GET_THREAD() ((LIBEVENT_THREAD*) pthread_getspecific(thread_key));
+
 /**
  * Callback for any function producing stats.
  *
@@ -432,6 +435,7 @@ extern bool handled_event;
 extern int trace_sfd;
 extern int trace_coreid;
 extern int nprocs;
+extern pthread_key_t thread_key;
 
 #define ITEM_LINKED 1
 #define ITEM_CAS 2
@@ -720,6 +724,7 @@ void memcached_thread_init(int nthreads, void *arg);
 void redispatch_conn(conn *c);
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags, int read_buffer_size, enum network_transport transport);
 void sidethread_conn_close(conn *c);
+void assign_thread(void);
 
 /* Lock wrappers for cache functions that are called from main loop. */
 enum delta_result_type add_delta(conn *c, const char *key,

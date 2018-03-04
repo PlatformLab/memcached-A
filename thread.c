@@ -20,12 +20,16 @@
 #endif
 
 #define ITEMS_PER_ALLOC 64
-#define DIGIT_NUM
 
 bool handled_event;
-int trace_sfd;
-int trace_coreid;
+int trace_sfd; // Timetrace which socket
+int trace_coreid; // Timetrace which core
 int nprocs; // Hardware concurrency, number of physical kernel threads
+
+pthread_key_t thread_key; // Store per-thread LIBEVENT_THREAD struct
+pthread_mutex_t thread_tid_lock; // For allocating tid to each core
+static int thread_count = 0;
+
 
 /* An item in the connection queue. */
 enum conn_queue_item_modes {
@@ -421,12 +425,16 @@ static void setup_arachne_resources(int nthreads) {
 
 /*
  * Worker thread: main event loop
+ * TODO: we may not need to pass arg here, read from thread_key
  */
 static void *worker_libevent(void *arg) {
     int ret;
     ret = arachne_thread_exclusive_core(0);
     fprintf(stderr, "Worker Successfully have an exclusive core: %d \n", ret);
-    LIBEVENT_THREAD *me = arg;
+    /* Set thread local thread_key */
+    assign_thread();
+    // LIBEVENT_THREAD *me = arg;
+    LIBEVENT_THREAD *me = GET_THREAD();
 
     /* Any per-thread setup can happen here; memcached_thread_init() will block until
      * all threads have finished initializing.
@@ -485,12 +493,10 @@ static void *worker_libevent(void *arg) {
 static void thread_libevent_process(int fd, short which, void *arg) {
     LIBEVENT_THREAD *me = arg;
     CQ_ITEM *item;
-    char buf[4];
+    char buf[1];
     conn *c;
     unsigned int timeout_fd;
-    int tid;
 
-    memset(buf, 0, sizeof(buf));
     if (read(fd, buf, 1) != 1) {
         if (settings.verbose > 0)
             fprintf(stderr, "Can't read from libevent pipe\n");
@@ -521,15 +527,8 @@ static void thread_libevent_process(int fd, short which, void *arg) {
                         close(item->sfd);
                     }
                 } else {
-                    if (read(fd, buf, 3) != 3) {
-                        fprintf(stderr, "Can't read tid from libevent pipe, %s\n",
-                                buf);
-                        return;
-                    }
-                    tid = atoi(buf);
-                    fprintf(stderr, "Read tid: %d from libevent pipe %s\n", tid, buf);
                     // c->thread = me;
-                    c->thread = &threads[tid];
+                    c->thread = NULL; // Will assign thread in Arachne workers
                 }
                 break;
 
@@ -556,7 +555,7 @@ static void thread_libevent_process(int fd, short which, void *arg) {
 }
 
 /* Which thread we assigned a connection to most recently. */
-static int last_thread = 0;
+static int last_thread = -1;
 
 /*
  * Dispatches a new connection to another thread. This is only ever called
@@ -566,7 +565,7 @@ static int last_thread = 0;
 void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
                        int read_buffer_size, enum network_transport transport) {
     CQ_ITEM *item = cqi_new();
-    char buf[32];
+    char buf[1];
     if (item == NULL) {
         close(sfd);
         /* given that malloc failed this may also fail, but let's try */
@@ -574,11 +573,7 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
         return ;
     }
 
-    // int tid = (last_thread + 1) % settings.num_threads;
-    // tid starts from nthreads to (nprocs - 1)
-    int nthreads = settings.num_threads;
-    int tid = (last_thread - nthreads + 1) % (nprocs - nthreads) + nthreads;
-    fprintf(stderr, "tid is: %d \n", tid);
+    int tid = (last_thread + 1) % settings.num_threads;
 
     LIBEVENT_THREAD *thread = threads + tid;
 
@@ -595,11 +590,7 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
 
     MEMCACHED_CONN_DISPATCH(sfd, thread->thread_id);
     buf[0] = 'c';
-    sprintf(&buf[1], "%03d", tid);
-    fprintf(stderr, "Write notify buf is: %s \n", buf);
-    // Notice that we write 'c' + tid (3 digits, lead by 0)
-    // So that we can use the correct thread struct for that connection.
-    if (write(thread->notify_send_fd, buf, 4) != 4) {
+    if (write(thread->notify_send_fd, buf, 1) != 1) {
         perror("Writing to thread notify pipe");
     }
 }
@@ -836,6 +827,18 @@ void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
 }
 
 /*
+ * Assign a thread struct and set thread_key
+ */
+ void assign_thread() {
+    pthread_mutex_lock(&thread_tid_lock);
+    pthread_setspecific(thread_key, &threads[thread_count]);
+    fprintf(stderr, "Setup thread_key to %d th thread\n", thread_count);
+    thread_count++;
+    pthread_mutex_unlock(&thread_tid_lock);
+    return;
+ }
+
+/*
  * Initializes the thread subsystem, creating various worker threads.
  *
  * nthreads  Number of worker event handler threads to spawn
@@ -854,6 +857,8 @@ void memcached_thread_init(int nthreads, void *arg) {
     } else {
         fprintf(stderr, "Hardware concurrency: %d cores \n", nprocs);
     }
+    pthread_key_create(&thread_key, NULL);
+    pthread_mutex_init(&thread_tid_lock, NULL);
 
     for (i = 0; i < POWER_LARGEST; i++) {
         pthread_mutex_init(&lru_locks[i], NULL);
