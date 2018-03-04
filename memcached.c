@@ -6976,11 +6976,11 @@ static int memcached_main () {
     int retval = EXIT_SUCCESS;
     timetrace_set_keepoldevents(true);
 #ifdef TIMETRACE
-    timetrace_set_output_filename("timetrace_scheme3.log");
+    timetrace_set_output_filename("timetrace_scheme4_nolock.log");
 #endif
 
 #ifdef TIMETRACE_HANDLE
-    timetrace_set_output_filename("timetrace_handler_scheme3.log");
+    timetrace_set_output_filename("timetrace_handler_scheme4_nolock.log");
 #endif
     timetrace_record("Start of main event loop");
 
