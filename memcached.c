@@ -5306,8 +5306,14 @@ static bool update_event(conn *c, const int new_flags) {
 
     struct event_base *base = c->event.ev_base;
     // XXX: Qian: still need to readd, because we deleted in handler
-    // if ((c->ev_flags == new_flags))
-    //     return true;
+    if ((c->ev_flags == new_flags)) {
+#ifdef TIMETRACE
+        if (record) {
+            timetrace_record("[update_event] finished, same flags, no update: %d", c->sfd);
+        }
+#endif
+        return true;
+    }
 
     if (event_del(&c->event) == -1) return false;
 
@@ -5450,12 +5456,13 @@ static enum transmit_result transmit(conn *c) {
             return TRANSMIT_INCOMPLETE;
         }
         if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            if (!update_event(c, EV_WRITE | EV_PERSIST)) {
-                if (settings.verbose > 0)
-                    fprintf(stderr, "Couldn't update event\n");
-                conn_set_state(c, conn_closing);
-                return TRANSMIT_HARD_ERROR;
-            }
+//            if (!update_event(c, EV_WRITE | EV_PERSIST)) {
+//                if (settings.verbose > 0)
+//                    fprintf(stderr, "Couldn't update event\n");
+//                conn_set_state(c, conn_closing);
+//                return TRANSMIT_HARD_ERROR;
+//            }
+            arachne_thread_yield(); // XXX Qian: just yield here, don't update to EV_WRITE
             return TRANSMIT_SOFT_ERROR;
         }
         /* if res == 0 or res == -1 and error is not EAGAIN or EWOULDBLOCK,
@@ -5604,6 +5611,9 @@ static void* drive_machine(void *vc) {
     struct sockaddr_storage addr;
     int nreqs = settings.reqs_per_event;
     int res;
+#ifdef ARACHNE_CREATE
+    arachne_thread_id tid;
+#endif
     const char *str;
 #ifdef HAVE_ACCEPT4
     static int  use_accept4 = 1;
@@ -5693,13 +5703,12 @@ static void* drive_machine(void *vc) {
             break;
 
         case conn_waiting:
-            if (!update_event(c, EV_READ | EV_PERSIST)) {
-                if (settings.verbose > 0)
-                    fprintf(stderr, "Couldn't update event\n");
-                conn_set_state(c, conn_closing);
-                break;
-            }
-            // c->ev_flags = (EV_READ | EV_PERSIST);
+//            if (!update_event(c, EV_READ | EV_PERSIST)) {
+//                if (settings.verbose > 0)
+//                    fprintf(stderr, "Couldn't update event\n");
+//                conn_set_state(c, conn_closing);
+//                break;
+//            }
             conn_set_state(c, conn_read);
             stop = true;
 #ifdef TIMETRACE
@@ -5777,26 +5786,46 @@ static void* drive_machine(void *vc) {
                        hack we should just put in a request to write data,
                        because that should be possible ;-)
                     */
-                    // fprintf(stderr, "nreqs: %d case rbytes\n", nreqs);
-                    c->finished = true;
-                    if (!update_event(c, EV_WRITE | EV_PERSIST)) {
-                        if (settings.verbose > 0)
-                            fprintf(stderr, "Couldn't update event\n");
-                        conn_set_state(c, conn_closing);
+//                    if (!update_event(c, EV_WRITE | EV_PERSIST)) {
+//                        if (settings.verbose > 0)
+//                            fprintf(stderr, "Couldn't update event\n");
+//                        conn_set_state(c, conn_closing);
+//                        break;
+//                    }
+                    // XXX Qian: don't use hack, create another thread here to continue the work.
+#ifdef ARACHNE_CREATE
+                    res = arachne_thread_create(&tid, drive_machine, (void*)c);
+                    if (res != 0) {
+                        // Failed to create Arachne thread, then just yield.
+                        // Don't stop
+#ifdef TIMETRACE
+                        if (record) {
+                            timetrace_record("[drive_machine] End of drive machine %d", c->sfd);
+                        }
+#endif
+                        arachne_thread_yield();
+                        nreqs = settings.reqs_per_event;
                         break;
+                    } else {
+#ifdef TIMETRACE
+                        if (record) {
+                            timetrace_record("[drive_machine] End of drive machine %d", c->sfd);
+                        }
+#endif
+                        return NULL; // Don't update finished to true! Return here.
                     }
-                    // c->ev_flags = (EV_WRITE | EV_PERSIST);
-                } 
-                else {
-                    c->finished = true;
-                    // fprintf(stderr, "nreqs: %d case continue\n", nreqs);
-                    if (!update_event(c, EV_READ | EV_PERSIST)) {
-                        if (settings.verbose > 0)
-                            fprintf(stderr, "Couldn't update event\n");
-                        conn_set_state(c, conn_closing);
-                        break;
-                    }
-                    // c->ev_flags = (EV_READ | EV_PERSIST);
+#else
+
+#ifdef TIMETRACE
+                        if (record) {
+                            timetrace_record("[drive_machine] End of drive machine %d", c->sfd);
+                        }
+#endif
+
+                    arachne_thread_yield();
+                    nreqs = settings.reqs_per_event;
+                    break;
+#endif
                 }
                 stop = true;
             }
@@ -5884,13 +5913,12 @@ static void* drive_machine(void *vc) {
 
             if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
                 c->finished = true;
-                if (!update_event(c, EV_READ | EV_PERSIST)) {
-                    if (settings.verbose > 0)
-                        fprintf(stderr, "Couldn't update event\n");
-                    conn_set_state(c, conn_closing);
-                    break;
-                }
-                // c->ev_flags = (EV_READ | EV_PERSIST);
+//                if (!update_event(c, EV_READ | EV_PERSIST)) {
+//                    if (settings.verbose > 0)
+//                        fprintf(stderr, "Couldn't update event\n");
+//                    conn_set_state(c, conn_closing);
+//                    break;
+//                }
                 stop = true;
                 break;
             }
@@ -5946,12 +5974,12 @@ static void* drive_machine(void *vc) {
                 break;
             }
             if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-                if (!update_event(c, EV_READ | EV_PERSIST)) {
-                    if (settings.verbose > 0)
-                        fprintf(stderr, "Couldn't update event\n");
-                    conn_set_state(c, conn_closing);
-                    break;
-                }
+//                if (!update_event(c, EV_READ | EV_PERSIST)) {
+//                    if (settings.verbose > 0)
+//                        fprintf(stderr, "Couldn't update event\n");
+//                    conn_set_state(c, conn_closing);
+//                    break;
+//                }
                 stop = true;
                 break;
             }
@@ -6031,7 +6059,7 @@ static void* drive_machine(void *vc) {
                 break;                   /* Continue in state machine. */
 
             case TRANSMIT_SOFT_ERROR:
-                stop = true;
+                // stop = true;  // XXX Qian: Just yield, don't stop
                 break;
             }
 #ifdef TIMETRACE
@@ -6044,8 +6072,8 @@ static void* drive_machine(void *vc) {
         case conn_closing:
             if (IS_UDP(c->transport))
                 conn_cleanup(c);
-            else
-                conn_close(c);
+            // else
+            //     conn_close(c); // Close in event handler!
             stop = true;
             break;
 
@@ -6131,6 +6159,10 @@ void event_handler(const int fd, const short which, void *arg) {
     /* If previous batch finished, then process */
     if (finished) {
         /* Don't go into the drive machine after closing this connection! */
+        if (state == conn_closing) {
+            conn_close(c);
+            return;
+        }
         if (state == conn_closed) {
             return;
         }
@@ -6147,9 +6179,9 @@ void event_handler(const int fd, const short which, void *arg) {
         }
 #endif
         c->finished = false;
-        if (event_del(&c->event) == -1) {
-           fprintf(stderr, "Failed to delete event! \n");
-        } 
+        // if (event_del(&c->event) == -1) {
+        //    fprintf(stderr, "Failed to delete event! \n");
+        // }
 
 #ifdef TIMETRACE_HANDLE
         if (record) {
@@ -6170,7 +6202,6 @@ void event_handler(const int fd, const short which, void *arg) {
             }
             ret = arachne_thread_create(&arachne_tid, drive_machine, (void*)c);
         }
-        // arachne_thread_join(&arachne_tid);
 #ifdef TIMETRACE_HANDLE
         if (record) {
             timetrace_record("[event_handler] Finish creating thread");
@@ -8092,7 +8123,7 @@ int main(int argc, char** argv) {
     /* If libevent version is larger/equal to 2.0.2-alpha, use newer version */
     struct event_config *ev_config;
     ev_config = event_config_new();
-    // event_config_set_flag(ev_config, EVENT_BASE_FLAG_NOLOCK);
+    event_config_set_flag(ev_config, EVENT_BASE_FLAG_NOLOCK);
     main_base = event_base_new_with_config(ev_config);
     event_config_free(ev_config);
 #else

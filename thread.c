@@ -326,7 +326,7 @@ static void setup_thread(LIBEVENT_THREAD *me) {
 #if defined(LIBEVENT_VERSION_NUMBER) && LIBEVENT_VERSION_NUMBER >= 0x02000101
     struct event_config *ev_config;
     ev_config = event_config_new();
-    // event_config_set_flag(ev_config, EVENT_BASE_FLAG_NOLOCK);
+    event_config_set_flag(ev_config, EVENT_BASE_FLAG_NOLOCK);
     me->base = event_base_new_with_config(ev_config);
     event_config_free(ev_config);
 #else
