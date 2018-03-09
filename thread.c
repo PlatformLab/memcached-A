@@ -295,14 +295,16 @@ static void cqi_free(CQ_ITEM *item) {
  * Creates a worker thread.
  */
 static void create_worker(void *(*func)(void *), void *arg) {
-    // pthread_attr_t  attr;
-    // int             ret;
+//    pthread_attr_t  attr;
+//    int             ret;
+//    pthread_t tid;
 
-    // pthread_attr_init(&attr);
+//    pthread_attr_init(&attr);
 
-    /* Use Arachne threads */
+    /* Use Exclusiv Arachne threads */
     int ret;
-    ret = arachne_thread_create(&((LIBEVENT_THREAD*)arg)->thread_id, func, arg);
+    ret = arachne_thread_create_with_class(&((LIBEVENT_THREAD*)arg)->thread_id, func, arg, 1);
+//    ret = pthread_create(&tid, &attr, func, arg);
     if (ret != 0) {
         fprintf(stderr, "Can't create Arachne thread: %s\n", strerror(ret));
         exit(1);
@@ -327,8 +329,19 @@ static void setup_thread(LIBEVENT_THREAD *me) {
     struct event_config *ev_config;
     ev_config = event_config_new();
     event_config_set_flag(ev_config, EVENT_BASE_FLAG_NOLOCK);
+	// event_config_require_features(ev_config, EV_FEATURE_ET);
+	event_config_require_features(ev_config, EV_FEATURE_O1);
     me->base = event_base_new_with_config(ev_config);
     event_config_free(ev_config);
+    enum event_method_feature f;
+    f = event_base_get_features(me->base);
+    if ((f & EV_FEATURE_ET))
+        printf("  Edge-triggered events are supported.");
+    if ((f & EV_FEATURE_O1))
+        printf("  O(1) event notification is supported.");
+    if ((f & EV_FEATURE_FDS))
+        printf("  All FD types are supported.");
+    puts("");
 #else
     me->base = event_init();
 #endif
@@ -429,8 +442,7 @@ static void setup_arachne_resources(int nthreads) {
  */
 static void *worker_libevent(void *arg) {
     int ret;
-    ret = arachne_thread_exclusive_core(0);
-    fprintf(stderr, "Worker Successfully have an exclusive core: %d \n", ret);
+    fprintf(stderr, "Worker Successfully have an exclusive core! \n");
     /* Set thread local thread_key */
     assign_thread();
     // LIBEVENT_THREAD *me = arg;
@@ -888,7 +900,7 @@ void memcached_thread_init(int nthreads, void *arg) {
     }
 
     /* XXX Qian: hard coded to 13, a reasonable large table */
-    power = 13;
+    power = 14;
 
     if (power >= hashpower) {
         fprintf(stderr, "Hash table power size (%d) cannot be equal to or less than item lock table (%d)\n", hashpower, power);

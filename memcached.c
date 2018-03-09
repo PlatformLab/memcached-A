@@ -1490,7 +1490,8 @@ static void complete_update_bin(conn *c) {
     bool record = (c->sfd == trace_sfd);
 #ifdef SINGLECORE
     int coreid = arachne_thread_getid();
-    record = (record && (coreid == trace_coreid));
+    // record = (record && (coreid == trace_coreid));
+    record = (coreid == trace_coreid);
 #endif
     if (record) {
         timetrace_record("[complete_update_bin] Start, before stats.mutex: %d", c->sfd);
@@ -1609,7 +1610,8 @@ static void process_bin_get_or_touch(conn *c) {
     bool record = (c->sfd == trace_sfd);
 #ifdef SINGLECORE
     int coreid = arachne_thread_getid();
-    record = (record && (coreid == trace_coreid));
+    // record = (record && (coreid == trace_coreid));
+    record = (coreid == trace_coreid);
 #endif
 
 #endif
@@ -1644,11 +1646,11 @@ static void process_bin_get_or_touch(conn *c) {
         uint16_t keylen = 0;
         uint32_t bodylen = sizeof(rsp->message.body) + (it->nbytes - 2);
 
-#ifdef TIMETRACE
-        if (record) {
-            timetrace_record("[process_bin_get] Before stats.mutex hit: %d", c->sfd);
-        }
-#endif
+//#ifdef TIMETRACE
+//        if (record) {
+//            timetrace_record("[process_bin_get] Before stats.mutex hit: %d", c->sfd);
+//        }
+//#endif
 
 #ifdef PMUTEX
         pthread_mutex_lock(&c->thread->stats.mutex);
@@ -1662,11 +1664,11 @@ static void process_bin_get_or_touch(conn *c) {
         pthread_mutex_unlock(&c->thread->stats.mutex);
 #endif
 
-#ifdef TIMETRACE
-        if (record) {
-            timetrace_record("[process_bin_get] After stats.mutex hit: %d", c->sfd);
-        }
-#endif
+//#ifdef TIMETRACE
+//        if (record) {
+//            timetrace_record("[process_bin_get] After stats.mutex hit: %d", c->sfd);
+//        }
+//#endif
         if (should_touch) {
             MEMCACHED_COMMAND_TOUCH(c->sfd, ITEM_key(it), it->nkey,
                                     it->nbytes, ITEM_get_cas(it));
@@ -2435,7 +2437,8 @@ static void process_bin_update(conn *c) {
     bool record = (c->sfd == trace_sfd);
 #ifdef SINGLECORE
     int coreid = arachne_thread_getid();
-    record = (record && (coreid == trace_coreid));
+    // record = (record && (coreid == trace_coreid));
+    record = (coreid == trace_coreid);
 #endif
 
 #endif
@@ -2873,7 +2876,8 @@ enum store_item_type do_store_item(item *it, int comm, conn *c, const uint32_t h
     bool record = (c->sfd == trace_sfd);
 #ifdef SINGLECORE
     int coreid = arachne_thread_getid();
-    record = (record && (coreid == trace_coreid));
+    // record = (record && (coreid == trace_coreid));
+    record = (coreid == trace_coreid);
 #endif
     if (record) {
         timetrace_record("[do_store_item] Before do_store_item of %d", c->sfd);
@@ -5208,14 +5212,14 @@ static enum try_read_result try_read_udp(conn *c) {
  * @return enum try_read_result
  */
 static enum try_read_result try_read_network(conn *c) {
-#ifdef TIMETRACE
-     bool record = (c->sfd == trace_sfd);
-#ifdef SINGLECORE
-    int coreid = arachne_thread_getid();
-    record = (record && (coreid == trace_coreid));
-#endif
-
-#endif
+//#ifdef TIMETRACE
+//     bool record = (c->sfd == trace_sfd);
+//#ifdef SINGLECORE
+//    int coreid = arachne_thread_getid();
+//    record = (record && (coreid == trace_coreid));
+//#endif
+//
+//#endif
     enum try_read_result gotdata = READ_NO_DATA_RECEIVED;
     int res;
     int num_allocs = 0;
@@ -5253,21 +5257,21 @@ static enum try_read_result try_read_network(conn *c) {
         int avail = c->rsize - c->rbytes;
         res = read(c->sfd, c->rbuf + c->rbytes, avail);
         if (res > 0) {
-#ifdef TIMETRACE
-            if (record) {
-                timetrace_record("[try_read_network] Before stats.mutex %d", c->sfd);
-            }
-#endif
+//#ifdef TIMETRACE
+//            if (record) {
+//                timetrace_record("[try_read_network] Finish reading to buffer. Before stats.mutex %d", c->sfd);
+//            }
+//#endif
 #ifdef PMUTEX
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.bytes_read += res;
             pthread_mutex_unlock(&c->thread->stats.mutex);
 #endif
-#ifdef TIMETRACE
-            if (record) {
-                timetrace_record("[try_read_network] After stats.mutex %d", c->sfd);
-            }
-#endif
+//#ifdef TIMETRACE
+//            if (record) {
+//                timetrace_record("[try_read_network] After stats.mutex %d", c->sfd);
+//            }
+//#endif
             gotdata = READ_DATA_RECEIVED;
             c->rbytes += res;
             if (res == avail) {
@@ -5296,7 +5300,8 @@ static bool update_event(conn *c, const int new_flags) {
     bool record = (c->sfd == trace_sfd);
 #ifdef SINGLECORE
     int coreid = arachne_thread_getid();
-    record = (record && (coreid == trace_coreid));
+    // record = (record && (coreid == trace_coreid));
+    record = (coreid == trace_coreid);
 #endif
 
     if (record) {
@@ -5402,7 +5407,8 @@ static enum transmit_result transmit(conn *c) {
     bool record = (c->sfd == trace_sfd);
 #ifdef SINGLECORE
     int coreid = arachne_thread_getid();
-    record = (record && (coreid == trace_coreid));
+    // record = (record && (coreid == trace_coreid));
+    record = (coreid == trace_coreid);
 #endif
 
 #endif
@@ -5489,7 +5495,8 @@ static int read_into_chunked_item(conn *c) {
      bool record = (c->sfd == trace_sfd);
 #ifdef SINGLECORE
     int coreid = arachne_thread_getid();
-    record = (record && (coreid == trace_coreid));
+    // record = (record && (coreid == trace_coreid));
+    record = (coreid == trace_coreid);
 #endif
 
 #endif
@@ -5586,6 +5593,9 @@ static int read_into_chunked_item(conn *c) {
 
 static void* drive_machine(void *vc) {
     conn* c = (conn*)vc;
+//    if (c->sfd == trace_sfd) {
+//        fprintf(stderr, "CoreID is: %d \n", arachne_thread_getid());
+//    }
 #ifdef TIMETRACE
     bool record = false;
     if (c->sfd == trace_sfd) {
@@ -5594,13 +5604,15 @@ static void* drive_machine(void *vc) {
             trace_coreid = arachne_thread_getid();
             fprintf(stderr, "coreId is : %d \n", trace_coreid);
         }
+    }
 #ifdef SINGLECORE
-        int coreid = arachne_thread_getid();
-        record = (record && (coreid == trace_coreid));
+    int coreid = arachne_thread_getid();
+  // record = (record && (coreid == trace_coreid));
+    record = (coreid == trace_coreid);
+
 #endif
-        if (record) {
-            timetrace_record("[drive_machine] Start in drive machine %d", c->sfd);
-        }
+    if (record) {
+        timetrace_record("[drive_machine] Start in drive machine %d", c->sfd);
     }
     // uint64_t start_time = rdtsc();
 #endif
@@ -5737,7 +5749,7 @@ static void* drive_machine(void *vc) {
             }
 #ifdef TIMETRACE
             if (record) {
-                timetrace_record("[drive_machine] After conn_read: %d", c->sfd);
+                timetrace_record("[drive_machine] Complete conn_read, read from network: %d", c->sfd);
             }
 #endif
             break;
@@ -5800,16 +5812,22 @@ static void* drive_machine(void *vc) {
                         // Don't stop
 #ifdef TIMETRACE
                         if (record) {
-                            timetrace_record("[drive_machine] End of drive machine %d", c->sfd);
+                            timetrace_record("[drive_machine] End of drive machine %d, before yield", c->sfd);
                         }
 #endif
-                        arachne_thread_yield();
+                        // arachne_thread_yield();
                         nreqs = settings.reqs_per_event;
+#ifdef TIMETRACE
+                        if (record) {
+                            timetrace_record("[drive_machine] Start in drive machine %d, after yield", c->sfd);
+                        }
+#endif
+
                         break;
                     } else {
 #ifdef TIMETRACE
                         if (record) {
-                            timetrace_record("[drive_machine] End of drive machine %d", c->sfd);
+                            timetrace_record("[drive_machine] End of drive machine %d, after create thread", c->sfd);
                         }
 #endif
                         return NULL; // Don't update finished to true! Return here.
@@ -5818,11 +5836,17 @@ static void* drive_machine(void *vc) {
 
 #ifdef TIMETRACE
                         if (record) {
-                            timetrace_record("[drive_machine] End of drive machine %d", c->sfd);
+                            timetrace_record("[drive_machine] End of drive machine, before yield %d", c->sfd);
                         }
 #endif
 
                     arachne_thread_yield();
+#ifdef TIMETRACE
+                        if (record) {
+                            timetrace_record("[drive_machine] Start in drive machine, after yield %d", c->sfd);
+                        }
+#endif
+
                     nreqs = settings.reqs_per_event;
                     break;
 #endif
@@ -5831,7 +5855,7 @@ static void* drive_machine(void *vc) {
             }
 #ifdef TIMETRACE
             if (record) {
-                timetrace_record("[drive_machine] Finish conn_new_cmd: %d", c->sfd);
+                timetrace_record("[drive_machine] Complete conn_new_cmd: %d", c->sfd);
             }
 #endif
             break;
@@ -5841,7 +5865,7 @@ static void* drive_machine(void *vc) {
                 complete_nread(c);
 #ifdef TIMETRACE
                 if (record) {
-                    timetrace_record("[drive_machine] Complete conn_nread: %d", c->sfd);
+                    timetrace_record("[drive_machine] Finish writing to send buf. Complete conn_nread: %d", c->sfd);
                 }
 #endif
                 break;
@@ -6172,22 +6196,8 @@ void event_handler(const int fd, const short which, void *arg) {
             fprintf(stderr, "trace sfd: %d \n", trace_sfd);
         }
 
-        /* Delete the event to avoid race condition */
-#ifdef TIMETRACE_HANDLE
-        if (record) {
-            timetrace_record("[event_handler]Before event_del");
-        }
-#endif
         c->finished = false;
-        // if (event_del(&c->event) == -1) {
-        //    fprintf(stderr, "Failed to delete event! \n");
-        // }
 
-#ifdef TIMETRACE_HANDLE
-        if (record) {
-            timetrace_record("[event_handler] After event_del");
-        }
-#endif
         /* Start Arachne worker thread */
 #ifdef TIMETRACE_HANDLE
         if (record) {
@@ -6209,20 +6219,26 @@ void event_handler(const int fd, const short which, void *arg) {
 #endif
     } else {
         // Reactive! Otherwise, we will lose it.
+        // Now with scheme4, may not need reactive, because workers will finish all read data
+//#ifdef TIMETRACE_HANDLE
+//        if (record) {
+//            timetrace_record("[event_handler] Before event_activate");
+//        }
+//#endif
+//
+          event_active(&c->event, 0, 0);
+//
+//#ifdef TIMETRACE_HANDLE
+//        if (record) {
+//            timetrace_record("[event_handler] After event_activate");
+//        }
+//#endif
 #ifdef TIMETRACE_HANDLE
         if (record) {
-            timetrace_record("[event_handler] Before event_activate");
+            timetrace_record("[event_handler] End of event_handler, !finished.");
         }
 #endif
-
-        event_active(&c->event, 0, 0);
-
-#ifdef TIMETRACE_HANDLE
-        if (record) {
-            timetrace_record("[event_handler] After event_activate");
-        }
-#endif
-
+        return;
     }
 
 #ifdef TIMETRACE_HANDLE
