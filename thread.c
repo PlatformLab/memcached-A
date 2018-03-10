@@ -293,7 +293,7 @@ static void create_worker(void *(*func)(void *), void *arg) {
 
     /* Use Arachne threads */
     int ret;
-    ret = arachne_thread_create(&((LIBEVENT_THREAD*)arg)->thread_id, func, arg);
+    ret = arachne_thread_create_with_class(&((LIBEVENT_THREAD*)arg)->thread_id, func, arg, 1);
     if (ret != 0) {
         fprintf(stderr, "Can't create Arachne thread: %s\n", strerror(ret));
         exit(1);
@@ -371,7 +371,6 @@ static void setup_thread(LIBEVENT_THREAD *me) {
  */
 static void *worker_libevent(void *arg) {
     int ret;
-    ret = arachne_thread_exclusive_core(0);
     fprintf(stderr, "Worker Successfully have an exclusive core \n");
     LIBEVENT_THREAD *me = arg;
 

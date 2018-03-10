@@ -1630,11 +1630,11 @@ static void process_bin_get_or_touch(conn *c) {
         uint16_t keylen = 0;
         uint32_t bodylen = sizeof(rsp->message.body) + (it->nbytes - 2);
 
-#ifdef TIMETRACE
-        if (record) {
-            timetrace_record("[process_bin_get] Before stats.mutex hit: %d", c->sfd);
-        }
-#endif
+//#ifdef TIMETRACE
+//        if (record) {
+//            timetrace_record("[process_bin_get] Before stats.mutex hit: %d", c->sfd);
+//        }
+//#endif
         pthread_mutex_lock(&c->thread->stats.mutex);
         if (should_touch) {
             c->thread->stats.touch_cmds++;
@@ -1644,11 +1644,11 @@ static void process_bin_get_or_touch(conn *c) {
             c->thread->stats.lru_hits[it->slabs_clsid]++;
         }
         pthread_mutex_unlock(&c->thread->stats.mutex);
-#ifdef TIMETRACE
-        if (record) {
-            timetrace_record("[process_bin_get] After stats.mutex hit: %d", c->sfd);
-        }
-#endif
+//#ifdef TIMETRACE
+//        if (record) {
+//            timetrace_record("[process_bin_get] After stats.mutex hit: %d", c->sfd);
+//        }
+//#endif
         if (should_touch) {
             MEMCACHED_COMMAND_TOUCH(c->sfd, ITEM_key(it), it->nkey,
                                     it->nbytes, ITEM_get_cas(it));
@@ -5164,9 +5164,9 @@ static enum try_read_result try_read_udp(conn *c) {
  * @return enum try_read_result
  */
 static enum try_read_result try_read_network(conn *c) {
-#ifdef TIMETRACE
-     bool record = (c->sfd == trace_sfd);
-#endif
+//#ifdef TIMETRACE
+//     bool record = (c->sfd == trace_sfd);
+//#endif
     enum try_read_result gotdata = READ_NO_DATA_RECEIVED;
     int res;
     int num_allocs = 0;
@@ -5204,19 +5204,19 @@ static enum try_read_result try_read_network(conn *c) {
         int avail = c->rsize - c->rbytes;
         res = read(c->sfd, c->rbuf + c->rbytes, avail);
         if (res > 0) {
-#ifdef TIMETRACE
-            if (record) {
-                timetrace_record("[try_read_network] Before stats.mutex %d", c->sfd);
-            }
-#endif
+//#ifdef TIMETRACE
+//            if (record) {
+//                timetrace_record("[try_read_network] Finish reading to buffer. Before stats.mutex %d", c->sfd);
+//            }
+//#endif
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.bytes_read += res;
             pthread_mutex_unlock(&c->thread->stats.mutex);
-#ifdef TIMETRACE
-            if (record) {
-                timetrace_record("[try_read_network] After stats.mutex %d", c->sfd);
-            }
-#endif
+//#ifdef TIMETRACE
+//            if (record) {
+//                timetrace_record("[try_read_network] After stats.mutex %d", c->sfd);
+//            }
+//#endif
             gotdata = READ_DATA_RECEIVED;
             c->rbytes += res;
             if (res == avail) {
@@ -5616,7 +5616,7 @@ static void drive_machine(conn *c) {
             }
 #ifdef TIMETRACE
             if (record) {
-                timetrace_record("[drive_machine] After conn_read: %d", c->sfd);
+                timetrace_record("[drive_machine] Complete conn_read, read from network:%d", c->sfd);
             }
 #endif
             break;
@@ -5672,7 +5672,7 @@ static void drive_machine(conn *c) {
             }
 #ifdef TIMETRACE
             if (record) {
-                timetrace_record("[drive_machine] Finish conn_new_cmd: %d", c->sfd);
+                timetrace_record("[drive_machine] Complete conn_new_cmd: %d", c->sfd);
             }
 #endif
             break;
@@ -5682,7 +5682,7 @@ static void drive_machine(conn *c) {
                 complete_nread(c);
 #ifdef TIMETRACE
                 if (record) {
-                    timetrace_record("[drive_machine] Complete conn_nread: %d", c->sfd);
+                    timetrace_record("[drive_machine] Finish writing to send buf. Complete conn_nread: %d", c->sfd);
                 }
 #endif
                 break;
@@ -5936,6 +5936,13 @@ static void drive_machine(conn *c) {
 void event_handler(const int fd, const short which, void *arg) {
     conn *c;
 
+#ifdef TIMETRACE_HANDLE
+    bool record = true;
+    if (record) {
+        timetrace_record("[event_handler] Start of event_handler");
+    }
+#endif
+
     c = (conn *)arg;
     assert(c != NULL);
 
@@ -5953,6 +5960,12 @@ void event_handler(const int fd, const short which, void *arg) {
 		fprintf(stderr, "trace sfd: %d \n", trace_sfd);
 	}
     drive_machine(c);
+
+#ifdef TIMETRACE_HANDLE
+    if (record) {
+        timetrace_record("[event_handler] End of event_handler");
+    }
+#endif
 
     /* wait for next event */
     return;

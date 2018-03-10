@@ -1035,7 +1035,7 @@ item *do_item_get(const char *key, const size_t nkey, const uint32_t hv, conn *c
                 if (settings.lru_segmented) {
 #ifdef TIMETRACE
                     if (record) {
-                        timetrace_record("[do_item_get] Before do_update lru %d", c->sfd);
+                        timetrace_record("[do_item_get] Finish getting. Before do_update lru %d", c->sfd);
                     }
 #endif
                     if ((it->it_flags & ITEM_ACTIVE) == 0) {
