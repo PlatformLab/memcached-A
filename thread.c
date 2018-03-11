@@ -330,7 +330,7 @@ static void setup_thread(LIBEVENT_THREAD *me) {
     ev_config = event_config_new();
     event_config_set_flag(ev_config, EVENT_BASE_FLAG_NOLOCK);
 	// event_config_require_features(ev_config, EV_FEATURE_ET);
-	event_config_require_features(ev_config, EV_FEATURE_O1);
+	// event_config_require_features(ev_config, EV_FEATURE_O1);
     me->base = event_base_new_with_config(ev_config);
     event_config_free(ev_config);
     enum event_method_feature f;
