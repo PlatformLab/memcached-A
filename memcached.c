@@ -6226,7 +6226,7 @@ void event_handler(const int fd, const short which, void *arg) {
 //        }
 //#endif
 //
-          event_active(&c->event, 0, 0);
+          // event_active(&c->event, 0, 0);
 //
 //#ifdef TIMETRACE_HANDLE
 //        if (record) {
