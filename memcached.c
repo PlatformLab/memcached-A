@@ -5815,7 +5815,7 @@ static void* drive_machine(void *vc) {
                             timetrace_record("[drive_machine] End of drive machine %d, before yield", c->sfd);
                         }
 #endif
-                        // arachne_thread_yield();
+                        arachne_thread_yield();  // If cannot create the thread, then yield.
                         nreqs = settings.reqs_per_event;
 #ifdef TIMETRACE
                         if (record) {
@@ -6206,17 +6206,22 @@ void event_handler(const int fd, const short which, void *arg) {
 #endif
         arachne_thread_id arachne_tid;
         ret = arachne_thread_create(&arachne_tid, drive_machine, (void*)c);
-        while (ret != 0) {
-            if (settings.verbose > 0) {
-                fprintf(stderr, "Failed to create Arachne thread!\n");
-            }
-            ret = arachne_thread_create(&arachne_tid, drive_machine, (void*)c);
-        }
+//        while (ret != 0) {
+//            if (settings.verbose > 0) {
+//                fprintf(stderr, "Failed to create Arachne thread!\n");
+//            }
+//            ret = arachne_thread_create(&arachne_tid, drive_machine, (void*)c);
+//        }
 #ifdef TIMETRACE_HANDLE
         if (record) {
             timetrace_record("[event_handler] Finish creating thread");
         }
 #endif
+        // XXX: if cannot create a thread, then do it in place!
+        if (ret != 0) {
+            drive_machine((void *)c);
+        }
+
     } else {
         // Reactive! Otherwise, we will lose it.
         // Now with scheme4, may not need reactive, because workers will finish all read data
