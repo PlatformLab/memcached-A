@@ -68,6 +68,8 @@
 #endif
 #endif
 
+#define MEMCACHE_MAXUTIL 0.7
+
 /*
  * forward declarations
  */
@@ -6195,21 +6197,10 @@ void event_handler(const int fd, const short which, void *arg) {
         }
 
     } else {
-        // Reactive! Otherwise, we will lose it.
-        // Now with scheme4, may not need reactive, because workers will finish all read data
-//#ifdef TIMETRACE_HANDLE
-//        if (record) {
-//            timetrace_record("[event_handler] Before event_activate");
-//        }
-//#endif
-//
-          // event_active(&c->event, 0, 0);
-//
-//#ifdef TIMETRACE_HANDLE
-//        if (record) {
-//            timetrace_record("[event_handler] After event_activate");
-//        }
-//#endif
+        // XXX: Now with level trigger, may not need reactive, because workers will finish all read data
+        // However, we still need to active if we are using edge trigger.
+        // event_active(&c->event, 0, 0);
+
 #ifdef TIMETRACE_HANDLE
         if (record) {
             timetrace_record("[event_handler] End of event_handler, !finished.");
@@ -7201,6 +7192,7 @@ int main(int argc, char** argv) {
 
     /* Initialize Arachne */
     arachne_init(&argc, (const char**)argv);
+    arachne_set_maxutil(MEMCACHE_MAXUTIL);
 
     /* init settings */
     settings_init();
