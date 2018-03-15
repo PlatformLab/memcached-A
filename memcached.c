@@ -477,7 +477,9 @@ void conn_close_idle(conn *c) {
         c->thread->stats.idle_kicks++;
 
         conn_set_state(c, conn_closing);
-        drive_machine(c);
+        // drive_machine(c);
+        conn_close(c); //XXX: we assume that we only use TCP, so just close.
+
     }
 }
 
@@ -7192,7 +7194,7 @@ int main(int argc, char** argv) {
 
     /* Initialize Arachne */
     arachne_init(&argc, (const char**)argv);
-    arachne_set_maxutil(MEMCACHE_MAXUTIL);
+    // arachne_set_maxutil(MEMCACHE_MAXUTIL);
 
     /* init settings */
     settings_init();
