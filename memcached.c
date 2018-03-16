@@ -787,7 +787,6 @@ void conn_free(conn *c) {
 
 static void conn_close(conn *c) {
     assert(c != NULL);
-
     /* delete the event, the socket and the conn */
     event_del(&c->event);
 
@@ -807,6 +806,10 @@ static void conn_close(conn *c) {
     STATS_LOCK();
     stats_state.curr_conns--;
     STATS_UNLOCK();
+
+    pthread_mutex_lock(&c->thread->stats.mutex);
+    c->thread->stats.conns_count--;
+    pthread_mutex_unlock(&c->thread->stats.mutex);
 
     return;
 }
