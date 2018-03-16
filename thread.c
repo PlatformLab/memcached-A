@@ -481,11 +481,12 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
 
     pthread_mutex_lock(&thread->stats.mutex);
     thread->stats.conns_count++;
-    fprintf(stderr, "dispatch %d to %d, total conns on it: %d \n", sfd, tid, thread->stats.conns_count);
-    fprintf(stderr, "\n Thread id \t Num of Conns \n");
+    fprintf(stderr, "\n Dispatch fd %d to tid %d, total conns on it: %d \n",
+            sfd, tid, thread->stats.conns_count);
+    fprintf(stderr, " Thread id \t #Connections \n");
     fprintf(stderr, "==============================\n");
     for (int i = 0; i < settings.num_threads; ++i) {
-        fprintf(stderr, " %d \t %d \n", i, (threads + i)->stats.conns_count);
+        fprintf(stderr, " %7d \t %7d \n", i, (threads + i)->stats.conns_count);
     }
     pthread_mutex_unlock(&thread->stats.mutex);
     last_thread = tid;
