@@ -328,11 +328,23 @@ static void setup_thread(LIBEVENT_THREAD *me) {
 #if defined(LIBEVENT_VERSION_NUMBER) && LIBEVENT_VERSION_NUMBER >= 0x02000101
     struct event_config *ev_config;
     ev_config = event_config_new();
+	const char **methods = event_get_supported_methods();
+	printf("Starting Libevent %s.  Available methods are:\n",
+		event_get_version());
+	for (int i=0; methods[i] != NULL; ++i) {
+		printf("    %s\n", methods[i]);
+	}
+
     event_config_set_flag(ev_config, EVENT_BASE_FLAG_NOLOCK);
 	// event_config_require_features(ev_config, EV_FEATURE_ET);
 	// event_config_require_features(ev_config, EV_FEATURE_O1);
+    event_config_avoid_method(ev_config, "select");
+    event_config_avoid_method(ev_config, "poll");
     me->base = event_base_new_with_config(ev_config);
     event_config_free(ev_config);
+
+    printf("Using Libevent with backend method %s.",
+            event_base_get_method(me->base));
     enum event_method_feature f;
     f = event_base_get_features(me->base);
     if ((f & EV_FEATURE_ET))
