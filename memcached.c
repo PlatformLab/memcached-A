@@ -6145,7 +6145,8 @@ void event_handler(const int fd, const short which, void *arg) {
     /* sanity */
     if (fd != c->sfd) {
         if (settings.verbose > 0)
-            fprintf(stderr, "Catastrophic: event fd doesn't match conn fd!\n");
+            fprintf(stderr, "Catastrophic: event fd doesn't match conn fd! "
+                     "%d vs. %d \n", fd, c->sfd);
         conn_close(c);
         return;
     }
@@ -6162,9 +6163,15 @@ void event_handler(const int fd, const short which, void *arg) {
         /* Don't go into the drive machine after closing this connection! */
         if (state == conn_closing) {
             conn_close(c);
+#ifdef TIMETRACE_HANDLE
+            if (record) {
+                timetrace_record("[event_handler] Conn closing");
+            }
+#endif
             return;
         }
         if (state == conn_closed) {
+            fprintf(stderr, "Conn_clsed: %d \n", fd);
             return;
         }
 
@@ -7197,6 +7204,9 @@ int main(int argc, char** argv) {
     arachne_init(&argc, (const char**)argv);
     // arachne_set_maxutil(MEMCACHE_MAXUTIL);
     arachne_set_loadfactor(MEMCACHE_LOADFACTOR);
+
+    FILE* logStream = fopen("coreUsed.log", "w");
+    arachne_set_errorstream(logStream);
 
     /* init settings */
     settings_init();
@@ -8313,6 +8323,8 @@ int main(int argc, char** argv) {
 
     /* cleanup base */
     event_base_free(main_base);
+
+    fclose(logStream);
     return retval;
 }
 
