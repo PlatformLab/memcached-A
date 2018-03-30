@@ -29,6 +29,7 @@
 #include "crc32c.h"
 #endif
 
+#include "PerfUtils/timetrace_wrapper.h"
 #include "sasl_defs.h"
 
 /** Maximum length of a key. */
@@ -140,6 +141,9 @@
 #define APPEND_NUM_STAT(num, name, fmt, val) \
     APPEND_NUM_FMT_STAT("%d:%s", num, name, fmt, val)
 
+/* Get thread local coreStats* pointer */
+#define GET_CORESTATS() ((coreStats*)pthread_getspecific(corestats_key));
+
 /**
  * Callback for any function producing stats.
  *
@@ -152,6 +156,12 @@
 typedef void (*ADD_STAT)(const char *key, const uint16_t klen,
                          const char *val, const uint32_t vlen,
                          const void *cookie);
+
+/* Thread local info about core id info */
+typedef struct {
+	char threadName[50];
+	int cpuID;
+} coreStats;
 
 /*
  * NOTE: If you modify this table you _MUST_ update the function state_text
@@ -426,6 +436,9 @@ extern struct stats stats;
 extern struct stats_state stats_state;
 extern time_t process_started;
 extern struct settings settings;
+extern pthread_key_t corestats_key;
+extern pthread_mutex_t corestats_tid_lock;
+extern int corestats_count;
 
 #define ITEM_LINKED 1
 #define ITEM_CAS 2
@@ -519,6 +532,7 @@ typedef struct {
 } item_hdr;
 #endif
 typedef struct {
+    int worker_id;                    /* worker id of this thread*/
     pthread_t thread_id;        /* unique ID of this thread */
     struct event_base *base;    /* libevent handle this thread uses */
     struct event notify_event;  /* listen event for notify pipe */
@@ -749,6 +763,10 @@ void append_stat(const char *name, ADD_STAT add_stats, conn *c,
                  const char *fmt, ...);
 
 enum store_item_type store_item(item *item, int comm, conn *c);
+
+/* Assign core id stats */
+void assign_corestats(const char* thread_name);
+void log_corestats(void);
 
 #if HAVE_DROP_PRIVILEGES
 extern void drop_privileges(void);

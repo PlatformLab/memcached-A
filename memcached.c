@@ -67,6 +67,11 @@
 #endif
 #endif
 
+pthread_key_t corestats_key; // Store per-thread coreStats struct key
+pthread_mutex_t corestats_tid_lock; // For allocating coreStats to each thread
+int corestats_count = 0;
+coreStats* corestats;
+
 /*
  * forward declarations
  */
@@ -332,6 +337,7 @@ static pthread_t conn_timeout_tid;
 #define CONNS_PER_SLICE 100
 #define TIMEOUT_MSG_SIZE (1 + sizeof(int))
 static void *conn_timeout_thread(void *arg) {
+    assign_corestats("time");
     int i;
     conn *c;
     char buf[TIMEOUT_MSG_SIZE];
@@ -340,6 +346,7 @@ static void *conn_timeout_thread(void *arg) {
     useconds_t timeslice = 1000000 / (max_fds / CONNS_PER_SLICE);
 
     while(1) {
+        log_corestats();
         if (settings.verbose > 2)
             fprintf(stderr, "idle timeout thread at top of connection list\n");
 
@@ -5738,6 +5745,10 @@ void event_handler(const int fd, const short which, void *arg) {
         return;
     }
 
+#ifdef CORETRACE
+    log_corestats();
+#endif
+
     drive_machine(c);
 
     /* wait for next event */
@@ -6384,9 +6395,18 @@ static void remove_pidfile(const char *pid_file) {
 
 }
 
+static void* timetrace_terminate(void* args) {
+#ifdef CORETRACE
+    timetrace_print();
+#endif
+    exit(EXIT_SUCCESS);
+}
+
 static void sig_handler(const int sig) {
     printf("Signal handled: %s.\n", strsignal(sig));
-    exit(EXIT_SUCCESS);
+    pthread_t tid;
+    pthread_create(&tid, NULL, timetrace_terminate, NULL);
+    return;
 }
 
 #ifndef HAVE_SIGIGNORE
@@ -6502,6 +6522,36 @@ static bool _parse_slab_sizes(char *s, uint32_t *slab_sizes) {
 
     slab_sizes[i] = 0;
     return true;
+}
+
+void assign_corestats(const char* thread_name) {
+#ifdef CORETRACE
+	coreStats *coreStat = GET_CORESTATS();
+	if (coreStat != NULL) {
+        return;
+	}
+    pthread_mutex_lock(&corestats_tid_lock);
+    pthread_setspecific(corestats_key, &corestats[corestats_count]);
+    strcpy(corestats[corestats_count].threadName, thread_name);
+    corestats[corestats_count].cpuID = -1;
+    fprintf(stderr, "Setup core stats %d to thread %s \n", corestats_count,
+            thread_name);
+    corestats_count++;
+    pthread_mutex_unlock(&corestats_tid_lock);
+    log_corestats(); // Record the initial core
+#endif
+}
+
+void log_corestats() {
+#ifdef CORETRACE
+    coreStats* coreStat = GET_CORESTATS();
+    if (coreStat == NULL) { return; }
+    int cpuId = sched_getcpu();
+    if (cpuId != coreStat->cpuID) {
+        timetrace_record("[%s] cpuid: %02d", coreStat->threadName, cpuId);
+        coreStat->cpuID = cpuId;
+    }
+#endif
 }
 
 int main (int argc, char **argv) {
@@ -7373,6 +7423,14 @@ int main (int argc, char **argv) {
         }
     }
 
+    // Setup corestats
+	pthread_key_create(&corestats_key, NULL);
+	pthread_mutex_init(&corestats_tid_lock, NULL);
+	corestats_count = 0;
+
+    corestats = calloc(settings.num_threads + 10, sizeof(coreStats));
+    assign_corestats("Main");
+
     if (settings.item_size_max < 1024) {
         fprintf(stderr, "Item max size cannot be less than 1024 bytes.\n");
         exit(EX_USAGE);
@@ -7586,6 +7644,12 @@ int main (int argc, char **argv) {
 #else
     /* Otherwise, use older API */
     main_base = event_init();
+#endif
+
+    /* initialize timetrace */
+#ifdef CORETRACE
+    timetrace_set_keepoldevents(true);
+    timetrace_set_output_filename("coretrace.log");
 #endif
 
     /* initialize other stuff */

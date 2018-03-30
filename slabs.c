@@ -1126,11 +1126,13 @@ static void slab_rebalance_finish(void) {
  * Sits waiting for a condition to jump off and shovel some memory about
  */
 static void *slab_rebalance_thread(void *arg) {
+    assign_corestats("slab");
     int was_busy = 0;
     /* So we first pass into cond_wait with the mutex held */
     mutex_lock(&slabs_rebalance_lock);
 
     while (do_run_slab_rebalance_thread) {
+        log_corestats();
         if (slab_rebalance_signal == 1) {
             if (slab_rebalance_start() < 0) {
                 /* Handle errors with more specificity as required. */
