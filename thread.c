@@ -380,6 +380,11 @@ static void *worker_libevent(void *arg) {
         drop_worker_privileges();
     }
 
+    // Set thread local corestat
+    char namebuff[20];
+    sprintf(namebuff, "w%02d", me->worker_id);
+    assign_corestats(namebuff);
+
     register_thread_initialized();
 
     event_base_loop(me->base, 0);
@@ -818,6 +823,7 @@ void memcached_thread_init(int nthreads, void *arg) {
 
     /* Create threads after we've done all the libevent setup. */
     for (i = 0; i < nthreads; i++) {
+        threads[i].worker_id = i;
         create_worker(worker_libevent, &threads[i]);
     }
 
