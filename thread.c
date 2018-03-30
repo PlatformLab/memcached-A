@@ -473,6 +473,11 @@ static void *worker_libevent(void *arg) {
         drop_worker_privileges();
     }
 
+    // Set thread local corestat
+    char namebuff[20];
+    sprintf(namebuff, "w%02d", me->worker_id);
+    assign_corestats(namebuff);
+
     register_thread_initialized();
 
     // event_base_loop(me->base, 0);
@@ -857,6 +862,7 @@ void slab_stats_aggregate(struct thread_stats *stats, struct slab_stats *out) {
     pthread_mutex_lock(&thread_tid_lock);
     pthread_setspecific(thread_key, &threads[thread_count]);
     fprintf(stderr, "Setup thread_key to %d th thread\n", thread_count);
+    threads[thread_count].worker_id = thread_count;
     thread_count++;
     pthread_mutex_unlock(&thread_tid_lock);
     return;

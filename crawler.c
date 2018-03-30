@@ -352,6 +352,7 @@ static void lru_crawler_class_done(int i) {
 }
 
 static void *item_crawler_thread(void *arg) {
+    assign_corestats("crawl");
     int i;
     int crawls_persleep = settings.crawls_persleep;
 
@@ -364,6 +365,7 @@ static void *item_crawler_thread(void *arg) {
     pthread_cond_wait(&lru_crawler_cond, &lru_crawler_lock);
 
     while (crawler_count) {
+        log_corestats();
         item *search = NULL;
         void *hold_lock = NULL;
 

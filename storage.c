@@ -321,6 +321,7 @@ static void _storage_compact_cb(void *e, obj_io *io, int ret) {
 // would be nice if they could avoid hammering the same locks though?
 // I guess it's only COLD. that's probably fine.
 static void *storage_compact_thread(void *arg) {
+    assign_corestats("store");
     void *storage = arg;
     useconds_t to_sleep = MAX_STORAGE_COMPACT_SLEEP;
     bool compacting = false;
@@ -356,6 +357,7 @@ static void *storage_compact_thread(void *arg) {
     pthread_mutex_lock(&storage_compact_plock);
 
     while (1) {
+        log_corestats();
         pthread_mutex_unlock(&storage_compact_plock);
         if (to_sleep) {
             extstore_run_maint(storage);

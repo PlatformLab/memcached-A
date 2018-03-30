@@ -70,6 +70,10 @@
 
 #define MEMCACHE_MAXUTIL 0.7
 #define MEMCACHE_LOADFACTOR 2.0
+pthread_key_t corestats_key; // Store per-thread coreStats struct key
+pthread_mutex_t corestats_tid_lock; // For allocating coreStats to each thread
+int corestats_count = 0;
+coreStats* corestats;
 
 /*
  * forward declarations
@@ -336,6 +340,7 @@ static pthread_t conn_timeout_tid;
 #define CONNS_PER_SLICE 100
 #define TIMEOUT_MSG_SIZE (1 + sizeof(int))
 static void *conn_timeout_thread(void *arg) {
+    assign_corestats("time");
     int i;
     conn *c;
     char buf[TIMEOUT_MSG_SIZE];
@@ -344,6 +349,7 @@ static void *conn_timeout_thread(void *arg) {
     useconds_t timeslice = 1000000 / (max_fds / CONNS_PER_SLICE);
 
     while(1) {
+        log_corestats();
         if (settings.verbose > 2)
             fprintf(stderr, "idle timeout thread at top of connection list\n");
 
@@ -5634,10 +5640,15 @@ static void* drive_machine(void *vc) {
             if ((thread->l == NULL) || (thread->lru_bump_buf == NULL)) {
                 abort();
             }
+            // Set thread local corestat
+            char namebuff[20];
+            sprintf(namebuff, "w%02d", thread->worker_id);
+            assign_corestats(namebuff);
         }
         c->thread = thread;
     }
 
+    log_corestats(); // Record core changes
     while (!stop) {
 
         switch(c->state) {
@@ -6128,6 +6139,10 @@ void event_handler(const int fd, const short which, void *arg) {
     }
 #endif
 
+#ifdef CORETRACE
+    log_corestats();
+#endif
+
     handled_event = true; // For utilization count
 
     c = (conn *)arg;
@@ -6210,7 +6225,6 @@ void event_handler(const int fd, const short which, void *arg) {
         // XXX: Now with level trigger, may not need reactive, because workers will finish all read data
         // However, we still need to active if we are using edge trigger.
         // event_active(&c->event, 0, 0);
-
 #ifdef TIMETRACE_HANDLE
         if (record) {
             timetrace_record("[event_handler] End of event_handler, !finished.");
@@ -7032,10 +7046,37 @@ static void* main_wrapper(void *arg) {
     return NULL;
 }
 
-/*
- * Create main thread
- */
-int main(int argc, char** argv) {
+void assign_corestats(const char* thread_name) {
+#ifdef CORETRACE
+	coreStats *coreStat = GET_CORESTATS();
+	if (coreStat != NULL) {
+        return;
+	}
+    pthread_mutex_lock(&corestats_tid_lock);
+    pthread_setspecific(corestats_key, &corestats[corestats_count]);
+    strcpy(corestats[corestats_count].threadName, thread_name);
+    corestats[corestats_count].cpuID = -1;
+    fprintf(stderr, "Setup core stats %d to thread %s \n", corestats_count,
+            thread_name);
+    corestats_count++;
+    pthread_mutex_unlock(&corestats_tid_lock);
+    log_corestats(); // Record the initial core
+#endif
+}
+
+void log_corestats() {
+#ifdef CORETRACE
+    coreStats* coreStat = GET_CORESTATS();
+    if (coreStat == NULL) { return; }
+    int cpuId = sched_getcpu();
+    if (cpuId != coreStat->cpuID) {
+        timetrace_record("[%s] cpuid: %02d", coreStat->threadName, cpuId);
+        coreStat->cpuID = cpuId;
+    }
+#endif
+}
+
+int main (int argc, char **argv) {
     int c;
     bool lock_memory = false;
     bool do_daemonize = false;
@@ -7915,6 +7956,14 @@ int main(int argc, char** argv) {
         }
     }
 
+    // Setup corestats
+	pthread_key_create(&corestats_key, NULL);
+	pthread_mutex_init(&corestats_tid_lock, NULL);
+	corestats_count = 0;
+
+    corestats = calloc(settings.num_threads + 10, sizeof(coreStats));
+    assign_corestats("Main");
+
     if (settings.item_size_max < 1024) {
         fprintf(stderr, "Item max size cannot be less than 1024 bytes.\n");
         exit(EX_USAGE);
@@ -8128,6 +8177,12 @@ int main(int argc, char** argv) {
 #else
     /* Otherwise, use older API */
     main_base = event_init();
+#endif
+
+    /* initialize timetrace */
+#ifdef CORETRACE
+    timetrace_set_keepoldevents(true);
+    timetrace_set_output_filename("arachne_coretrace.log");
 #endif
 
     /* initialize other stuff */
