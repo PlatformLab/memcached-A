@@ -144,10 +144,10 @@
     APPEND_NUM_FMT_STAT("%d:%s", num, name, fmt, val)
 
 /* Get thread local LIBEVENT_THREAD* pointer */
-#define GET_THREAD() ((LIBEVENT_THREAD*) pthread_getspecific(thread_key));
+#define GET_THREAD() ((LIBEVENT_THREAD*) pthread_getspecific(thread_key))
 
 /* Get thread local coreStats* pointer */
-#define GET_CORESTATS() ((coreStats*)pthread_getspecific(corestats_key));
+#define GET_CORESTATS() ((coreStats*)pthread_getspecific(corestats_key))
 
 /**
  * Callback for any function producing stats.
