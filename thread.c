@@ -791,7 +791,7 @@ void STATS_UNLOCK() {
 
 void threadlocal_stats_reset(void) {
     int ii;
-    for (ii = 0; ii < settings.num_threads; ++ii) {
+    for (ii = 0; ii < nprocs; ++ii) {
         pthread_mutex_lock(&threads[ii].stats.mutex);
 #define X(name) threads[ii].stats.name = 0;
         THREAD_STATS_FIELDS
@@ -816,7 +816,7 @@ void threadlocal_stats_aggregate(struct thread_stats *stats) {
      * to zero since it is unused when aggregating. */
     memset(stats, 0, sizeof(*stats));
 
-    for (ii = 0; ii < settings.num_threads; ++ii) {
+    for (ii = 0; ii < nprocs; ++ii) {
         pthread_mutex_lock(&threads[ii].stats.mutex);
 #define X(name) stats->name += threads[ii].stats.name;
         THREAD_STATS_FIELDS
