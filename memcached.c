@@ -283,6 +283,7 @@ static void settings_init(void) {
 #ifdef MEMCACHED_DEBUG
     settings.relaxed_privileges = false;
 #endif
+    settings.arachne_log = "arachneCores.log";
 }
 
 /*
@@ -6758,6 +6759,7 @@ static void usage(void) {
            "   - ext_max_frag:        max page fragmentation to tolerage\n"
            "                          (see doc/storage.txt for more info)\n"
 #endif
+           "-g, --arachne-log         Filename to store Arachne logs\n"
            );
     return;
 }
@@ -7246,9 +7248,6 @@ int main (int argc, char **argv) {
     // arachne_set_maxutil(MEMCACHE_MAXUTIL);
     arachne_set_loadfactor(MEMCACHE_LOADFACTOR);
 
-    FILE* logStream = fopen("coreUsed.log", "w");
-    arachne_set_errorstream(logStream);
-
     /* init settings */
     settings_init();
 #ifdef EXTSTORE
@@ -7308,6 +7307,7 @@ int main (int argc, char **argv) {
           "F"   /* Disable flush_all */
           "X"   /* Disable dump commands */
           "o:"  /* Extended generic options */
+          "g:"  /* Arachne log file */
           ;
 
     /* process arguments */
@@ -7344,6 +7344,7 @@ int main (int argc, char **argv) {
         {"disable-flush-all", no_argument, 0, 'F'},
         {"disable-dumping", no_argument, 0, 'X'},
         {"extended", required_argument, 0, 'o'},
+        {"arachne-log", required_argument, 0, 'g'},
         {0, 0, 0, 0}
     };
     int optindex;
@@ -7353,6 +7354,9 @@ int main (int argc, char **argv) {
     while (-1 != (c = getopt(argc, argv, shortopts))) {
 #endif
         switch (c) {
+        case 'g':
+            settings.arachne_log = optarg;
+            break;
         case 'A':
             /* enables "shutdown" command */
             settings.shutdown_command = true;
@@ -7955,6 +7959,9 @@ int main (int argc, char **argv) {
             return 1;
         }
     }
+
+    FILE* logStream = fopen(settings.arachne_log, "w");
+    arachne_set_errorstream(logStream);
 
     // Setup corestats
 	pthread_key_create(&corestats_key, NULL);
