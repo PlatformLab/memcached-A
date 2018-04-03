@@ -284,6 +284,8 @@ static void settings_init(void) {
     settings.relaxed_privileges = false;
 #endif
     settings.arachne_log = "arachneCores.log";
+    settings.arachne_loadfactor = MEMCACHE_LOADFACTOR; // Default using load factor
+    settings.arachne_maxutil = -1;
 }
 
 /*
@@ -6760,6 +6762,8 @@ static void usage(void) {
            "                          (see doc/storage.txt for more info)\n"
 #endif
            "-g, --arachne-log         Filename to store Arachne logs\n"
+           "-O, --arachne-loadfactor  Set Arachne LoadFactor\n"
+           "-T, --arachne-maxutil     Set Arachne MaxUtil\n"
            );
     return;
 }
@@ -7245,8 +7249,6 @@ int main (int argc, char **argv) {
 
     /* Initialize Arachne */
     arachne_init(&argc, (const char**)argv);
-    // arachne_set_maxutil(MEMCACHE_MAXUTIL);
-    arachne_set_loadfactor(MEMCACHE_LOADFACTOR);
 
     /* init settings */
     settings_init();
@@ -7308,6 +7310,8 @@ int main (int argc, char **argv) {
           "X"   /* Disable dump commands */
           "o:"  /* Extended generic options */
           "g:"  /* Arachne log file */
+          "O:"  /* Arachne estimator load factor threshold */
+          "T:"  /* Arachne estimator max util threshold */
           ;
 
     /* process arguments */
@@ -7345,6 +7349,8 @@ int main (int argc, char **argv) {
         {"disable-dumping", no_argument, 0, 'X'},
         {"extended", required_argument, 0, 'o'},
         {"arachne-log", required_argument, 0, 'g'},
+        {"arachne-loadfactor", required_argument, 0, 'O'},
+        {"arachne-maxutil", required_argument, 0, 'T'},
         {0, 0, 0, 0}
     };
     int optindex;
@@ -7357,6 +7363,15 @@ int main (int argc, char **argv) {
         case 'g':
             settings.arachne_log = optarg;
             break;
+
+        case 'O':
+            settings.arachne_loadfactor = atof(optarg);
+            break;
+
+        case 'T':
+            settings.arachne_maxutil = atof(optarg);
+            break;
+
         case 'A':
             /* enables "shutdown" command */
             settings.shutdown_command = true;
@@ -7962,6 +7977,17 @@ int main (int argc, char **argv) {
 
     FILE* logStream = fopen(settings.arachne_log, "w");
     arachne_set_errorstream(logStream);
+
+    if (settings.arachne_maxutil > 0 && settings.arachne_loadfactor > 0) {
+        fprintf(stderr, "Only maxutil or loadfactor can be used. Please choose one \n");
+        exit(EX_USAGE);
+    } else if (settings.arachne_maxutil > 0) {
+        arachne_set_maxutil(settings.arachne_maxutil);
+        fprintf(stderr, "Using MaxUtil: %.3lf \n", settings.arachne_maxutil);
+    } else {
+        arachne_set_loadfactor(settings.arachne_loadfactor);
+        fprintf(stderr, "Using LoadFactor: %.3lf \n", settings.arachne_loadfactor);
+    }
 
     // Setup corestats
 	pthread_key_create(&corestats_key, NULL);

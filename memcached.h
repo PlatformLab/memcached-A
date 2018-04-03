@@ -421,6 +421,9 @@ struct settings {
     bool drop_privileges;   /* Whether or not to drop unnecessary process privileges */
     bool relaxed_privileges;   /* Relax process restrictions when running testapp */
     char* arachne_log;      /* Arachne log file name */
+    double arachne_maxutil; /* Arachne core load estimator max util threshold*/
+    double arachne_loadfactor; /*Arachne loadfactor threshold, only one of loadfactor*/
+                               /* and maxutil threshold can be non-negative*/
 #ifdef EXTSTORE
     unsigned int ext_item_size; /* minimum size of items to store externally */
     unsigned int ext_item_age; /* max age of tail item before storing ext. */
