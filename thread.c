@@ -13,7 +13,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <pthread.h>
-#include <sys/sysinfo.h>
 
 #ifdef __sun
 #include <atomic.h>
@@ -879,7 +878,6 @@ void memcached_thread_init(int nthreads, void *arg) {
 
     trace_sfd = -1;
     trace_coreid = -1;
-    nprocs = get_nprocs();
     if (nprocs <= nthreads) {
         fprintf(stderr, "Num of threads cannot exceed num of cores! %d vs. %d",
                 nthreads, nprocs);

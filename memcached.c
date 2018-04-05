@@ -7994,7 +7994,8 @@ int main (int argc, char **argv) {
 	pthread_mutex_init(&corestats_tid_lock, NULL);
 	corestats_count = 0;
 
-    corestats = calloc(settings.num_threads + 10, sizeof(coreStats));
+    nprocs = get_nprocs();
+    corestats = calloc(nprocs + 10, sizeof(coreStats));
     assign_corestats("Main");
 
     if (settings.item_size_max < 1024) {

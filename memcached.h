@@ -19,6 +19,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <assert.h>
+#include <sys/sysinfo.h>
 
 #include "itoa_ljust.h"
 #include "protocol_binary.h"
