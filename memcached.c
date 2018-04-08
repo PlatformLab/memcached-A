@@ -7649,7 +7649,9 @@ int main (int argc, char **argv) {
     /* initialize timetrace */
 #ifdef CORETRACE
     timetrace_set_keepoldevents(true);
-    timetrace_set_output_filename("coretrace.log");
+    char coretraceName[50];
+    sprintf(coretraceName, "original_coretrace_%d.log", settings.num_threads);
+    timetrace_set_output_filename(coretraceName);
 #endif
 
     /* initialize other stuff */
