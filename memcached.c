@@ -75,6 +75,8 @@ pthread_mutex_t corestats_tid_lock; // For allocating coreStats to each thread
 int corestats_count = 0;
 coreStats* corestats;
 
+FILE* logStream = NULL; // arachne log stream
+
 /*
  * forward declarations
  */
@@ -6891,6 +6893,13 @@ static void remove_pidfile(const char *pid_file) {
 static void* timetrace_terminate(void* args) {
     timetrace_record("End of memcached");
     timetrace_print();
+
+    // Add a tail to logStream
+    struct timeval now;
+    gettimeofday(&now, NULL);
+    uint64_t nowTime = now.tv_sec * 1000000 + now.tv_usec;
+    fprintf(logStream, "%lu,02\n", nowTime);
+    fclose(logStream);
     exit(EXIT_SUCCESS);
 }
 
@@ -7975,7 +7984,9 @@ int main (int argc, char **argv) {
         }
     }
 
-    FILE* logStream = fopen(settings.arachne_log, "w");
+    logStream = fopen(settings.arachne_log, "w");
+    // Print the headline
+    fprintf(logStream, "TimeInUSecSinceEpoch,Cores\n");
     arachne_set_errorstream(logStream);
 
     if (settings.arachne_maxutil > 0 && settings.arachne_loadfactor > 0) {
