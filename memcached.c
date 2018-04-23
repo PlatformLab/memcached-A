@@ -6138,9 +6138,10 @@ void event_handler(const int fd, const short which, void *arg) {
     int ret;
 
 #ifdef TIMETRACE_HANDLE
+    LIBEVENT_THREAD *thread = GET_THREAD();
     bool record = true; // Always record!
-    if (record) {
-        timetrace_record("[event_handler] Start of event_handler");
+    if (record && thread != NULL) {
+        timetrace_record("[event_handler] Start of event_handler in dispatch %d", thread->worker_id);
     }
 #endif
 
@@ -6184,8 +6185,9 @@ void event_handler(const int fd, const short which, void *arg) {
         if (state == conn_closing) {
             conn_close(c);
 #ifdef TIMETRACE_HANDLE
-            if (record) {
-                timetrace_record("[event_handler] Conn closing");
+            if (record && thread != NULL) {
+                timetrace_record("[event_handler] Conn closing in dispatch %d",
+                                  thread->worker_id);
             }
 #endif
             return;
@@ -6204,8 +6206,9 @@ void event_handler(const int fd, const short which, void *arg) {
 
         /* Start Arachne worker thread */
 #ifdef TIMETRACE_HANDLE
-        if (record) {
-            timetrace_record("[event_handler] Before creating thread");
+        if (record && thread != NULL) {
+            timetrace_record("[event_handler] Before creating thread in dispatch %d",
+                             thread->worker_id);
         }
 #endif
         arachne_thread_id arachne_tid;
@@ -6217,8 +6220,9 @@ void event_handler(const int fd, const short which, void *arg) {
 //            ret = arachne_thread_create(&arachne_tid, drive_machine, (void*)c);
 //        }
 #ifdef TIMETRACE_HANDLE
-        if (record) {
-            timetrace_record("[event_handler] Finish creating thread");
+        if (record && thread != NULL) {
+            timetrace_record("[event_handler] Finish creating thread in dispatch %d",
+                             thread->worker_id);
         }
 #endif
         // XXX: if cannot create a thread, then do it in place!
@@ -6231,8 +6235,9 @@ void event_handler(const int fd, const short which, void *arg) {
         // However, we still need to active if we are using edge trigger.
         // event_active(&c->event, 0, 0);
 #ifdef TIMETRACE_HANDLE
-        if (record) {
-            timetrace_record("[event_handler] End of event_handler, !finished.");
+        if (record && thread != NULL) {
+            timetrace_record("[event_handler] End of event_handler, !finished."
+                             " in dispatch %d", thread->worker_id);
         }
 #endif
         return;
@@ -6240,7 +6245,8 @@ void event_handler(const int fd, const short which, void *arg) {
 
 #ifdef TIMETRACE_HANDLE
     if (record) {
-        timetrace_record("[event_handler] End of event_handler");
+        timetrace_record("[event_handler] End of event_handler in dispatch %d",
+                         thread->worker_id);
     }
 #endif
     /* wait for next event */

@@ -944,6 +944,7 @@ void memcached_thread_init(int nthreads, void *arg) {
         exit(1);
     }
 
+    fprintf(stderr, "Setup %d dispatch threads \n", nthreads);
     for (i = 0; i < nthreads; i++) {
         int fds[2];
         if (pipe(fds)) {
