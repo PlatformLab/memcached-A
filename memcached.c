@@ -6159,10 +6159,6 @@ void event_handler(const int fd, const short which, void *arg) {
 
     bool finished = c->finished;
     int state = c->state;
-//    if (settings.verbose > 0) {
-//        fprintf(stderr, "state: %u, read: %d, write: %d, finished %d \n",
-//            state, (which & EV_READ), (which & EV_WRITE), finished);
-//    }
 
     /* sanity */
     if (fd != c->sfd) {
@@ -6173,7 +6169,6 @@ void event_handler(const int fd, const short which, void *arg) {
         return;
     }
 
-    // drive_machine((void*)c);
     /* Connection dispatcher will run in place */
     if (state == conn_listening) {
         drive_machine((void*)c);
@@ -6183,7 +6178,11 @@ void event_handler(const int fd, const short which, void *arg) {
     /* If previous batch finished, then process */
     if (finished) {
         /* Don't go into the drive machine after closing this connection! */
-        if (state == conn_closing) {
+        if ((state == conn_closing) || (state == conn_closed)) {
+            if (state == conn_closed) {
+                fprintf(stderr, "Conn_closed: %d\n", fd);
+                return;
+            }
             conn_close(c);
 #ifdef TIMETRACE_HANDLE
             if (record && thread != NULL) {
@@ -6193,10 +6192,7 @@ void event_handler(const int fd, const short which, void *arg) {
 #endif
             return;
         }
-        if (state == conn_closed) {
-            fprintf(stderr, "Conn_clsed: %d \n", fd);
-            return;
-        }
+
 #ifdef TIMETRACE_HANDLE
         if (record && thread != NULL) {
             timetrace_record("[event_handler] Before creating thread in dispatch %d, fd %d",
@@ -6204,11 +6200,12 @@ void event_handler(const int fd, const short which, void *arg) {
         }
 #endif
 
+#if defined(TIMETRACE) || defined(TIMETRACE_HANDLE)
         if ((state == conn_new_cmd) && (trace_sfd == -1)) {
             trace_sfd = fd; // Only track one client
             fprintf(stderr, "trace sfd: %d \n", trace_sfd);
         }
-
+#endif
         c->finished = false;
 
         /* Start Arachne worker thread */
