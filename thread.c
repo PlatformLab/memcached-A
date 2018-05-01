@@ -459,6 +459,12 @@ static void *worker_libevent(void *arg) {
     // LIBEVENT_THREAD *me = arg;
     LIBEVENT_THREAD *me = GET_THREAD();
 
+#ifdef LIBEVENTTRACE
+    if (trace_coreid == -1) {
+        trace_coreid = arachne_thread_getid();
+        fprintf(stderr, "dispatch coreId is : %d \n", trace_coreid);
+    }
+#endif
     /* Any per-thread setup can happen here; memcached_thread_init() will block until
      * all threads have finished initializing.
      */

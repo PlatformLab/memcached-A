@@ -77,6 +77,9 @@ coreStats* corestats;
 
 FILE* logStream = NULL; // arachne log stream
 
+// For kernel trace
+pthread_mutex_t kerneltrace_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 /*
  * forward declarations
  */
@@ -5220,6 +5223,10 @@ static enum try_read_result try_read_network(conn *c) {
 //#endif
 //
 //#endif
+#ifdef KERNELTRACE
+    int coreid = arachne_thread_getid();
+    bool record = (coreid == trace_coreid) && (trace_coreid != -1);
+#endif
     enum try_read_result gotdata = READ_NO_DATA_RECEIVED;
     int res;
     int num_allocs = 0;
@@ -5255,7 +5262,18 @@ static enum try_read_result try_read_network(conn *c) {
         }
 
         int avail = c->rsize - c->rbytes;
+#ifdef KERNELTRACE
+        if (record) {
+            timetrace_record("[try_read_network] Before read, %d", c->sfd);
+        }
+#endif
         res = read(c->sfd, c->rbuf + c->rbytes, avail);
+
+#ifdef KERNELTRACE
+        if (record) {
+            timetrace_record("[try_read_network] After read, %d", c->sfd);
+        }
+#endif
         if (res > 0) {
 //#ifdef TIMETRACE
 //            if (record) {
@@ -5411,6 +5429,11 @@ static enum transmit_result transmit(conn *c) {
 
 #endif
 
+#ifdef KERNELTRACE
+    int coreid = arachne_thread_getid();
+    bool record = (coreid == trace_coreid);
+#endif
+
     if (c->msgcurr < c->msgused &&
             c->msglist[c->msgcurr].msg_iovlen == 0) {
         /* Finished writing the current msg; advance to the next. */
@@ -5424,7 +5447,19 @@ static enum transmit_result transmit(conn *c) {
             timetrace_record("[transmit] Before sendmsg %d", c->sfd);
         }
 #endif
+#ifdef KERNELTRACE
+        if (record) {
+            timetrace_record("[transmit] Before sendmsg, %d", c->sfd);
+        }
+#endif
         res = sendmsg(c->sfd, m, 0);
+
+#ifdef KERNELTRACE
+        if (record) {
+            timetrace_record("[transmit] After sendmsg, %d", c->sfd);
+        }
+#endif
+
 #ifdef TIMETRACE
             if (record) {
                 timetrace_record("[transmit] After sendmsg, before stats.mutex %d", c->sfd);
@@ -5611,6 +5646,17 @@ static void* drive_machine(void *vc) {
     // uint64_t start_time = rdtsc();
 #endif
 
+#ifdef KERNELTRACE
+    if (trace_coreid == -1) {
+        pthread_mutex_lock(&kerneltrace_mutex);
+        if (trace_coreid == -1) { //Avoid race condition
+            trace_coreid = arachne_thread_getid();
+            fprintf(stderr, "Kernel trace coreId is : %d \n", trace_coreid);
+        }
+        pthread_mutex_unlock(&kerneltrace_mutex);
+    }
+#endif
+
     bool stop = false;
     int sfd;
     socklen_t addrlen;
@@ -5731,7 +5777,11 @@ static void* drive_machine(void *vc) {
 
         case conn_read:
             res = IS_UDP(c->transport) ? try_read_udp(c) : try_read_network(c);
-
+#ifdef KERNELTRACE
+            if ((trace_coreid != -1) && (trace_coreid == arachne_thread_getid())) {
+                timetrace_record("Read status: %d, fd %d", res, c->sfd);
+            }
+#endif
             switch (res) {
             case READ_NO_DATA_RECEIVED:
                 conn_set_state(c, conn_waiting);
@@ -6150,6 +6200,14 @@ void event_handler(const int fd, const short which, void *arg) {
     log_corestats();
 #endif
 
+// Track the time we blocked in kernel.
+#ifdef LIBEVENTTRACE
+    int coreid = arachne_thread_getid();
+    bool record = (coreid == trace_coreid);
+    if (record) {
+        timetrace_record("[event_handler] Start of event_handler, fd %d", fd);
+    }
+#endif
     // handled_event = true; // For utilization count
 
     c = (conn *)arg;
@@ -6244,6 +6302,11 @@ void event_handler(const int fd, const short which, void *arg) {
                              " in dispatch %d, fd %d", thread->worker_id, fd);
         }
 #endif
+#ifdef LIBEVENTTRACE
+    if (record) {
+        timetrace_record("[event_handler] End of event_handler, fd %d", fd);
+    }
+#endif
         return;
     }
 
@@ -6254,6 +6317,11 @@ void event_handler(const int fd, const short which, void *arg) {
     }
 #endif
     /* wait for next event */
+#ifdef LIBEVENTTRACE
+    if (record) {
+        timetrace_record("[event_handler] End of event_handler, fd %d", fd);
+    }
+#endif
     return;
 }
 
@@ -7059,6 +7127,14 @@ static int memcached_main () {
 
 #ifdef TIMETRACE_HANDLE
     timetrace_set_output_filename("timetrace_handler_scheme4_nolock.log");
+#endif
+
+#ifdef LIBEVENTTRACE
+    timetrace_set_output_filename("timetrace_libevent_scheme4.log");
+#endif
+
+#ifdef KERNELTRACE
+    timetrace_set_output_filename("timetrace_netowrk_scheme4.log");
 #endif
     timetrace_record("Start of main event loop");
 
