@@ -385,6 +385,15 @@ static void *worker_libevent(void *arg) {
     sprintf(namebuff, "w%02d", me->worker_id);
     assign_corestats(namebuff);
 
+#ifdef KERNELTRACE
+    pthread_mutex_lock(&kerneltrace_mutex);
+    if (trace_workerid == -1) {
+        trace_workerid = me->worker_id;
+        fprintf(stderr, "Kernel trace worker is : %d \n", trace_workerid);
+    }
+    pthread_mutex_unlock(&kerneltrace_mutex);
+#endif
+
     register_thread_initialized();
 
     event_base_loop(me->base, 0);
@@ -484,16 +493,16 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
 
     LIBEVENT_THREAD *thread = threads + tid;
 
-    pthread_mutex_lock(&thread->stats.mutex);
-    thread->stats.conns_count++;
-    fprintf(stderr, "\n Dispatch fd %d to tid %d, total conns on it: %d \n",
-            sfd, tid, thread->stats.conns_count);
-    fprintf(stderr, " Thread id \t #Connections \n");
-    fprintf(stderr, "==============================\n");
-    for (int i = 0; i < settings.num_threads; ++i) {
-        fprintf(stderr, " %7d \t %7d \n", i, (threads + i)->stats.conns_count);
-    }
-    pthread_mutex_unlock(&thread->stats.mutex);
+//    pthread_mutex_lock(&thread->stats.mutex);
+//    thread->stats.conns_count++;
+//    fprintf(stderr, "\n Dispatch fd %d to tid %d, total conns on it: %d \n",
+//            sfd, tid, thread->stats.conns_count);
+//    fprintf(stderr, " Thread id \t #Connections \n");
+//    fprintf(stderr, "==============================\n");
+//    for (int i = 0; i < settings.num_threads; ++i) {
+//        fprintf(stderr, " %7d \t %7d \n", i, (threads + i)->stats.conns_count);
+//    }
+//    pthread_mutex_unlock(&thread->stats.mutex);
     last_thread = tid;
 
     item->sfd = sfd;

@@ -72,6 +72,10 @@ pthread_mutex_t corestats_tid_lock; // For allocating coreStats to each thread
 int corestats_count = 0;
 coreStats* corestats;
 
+// For kernel trace
+pthread_mutex_t kerneltrace_mutex = PTHREAD_MUTEX_INITIALIZER;
+int trace_workerid = -1;
+
 /*
  * forward declarations
  */
@@ -5093,6 +5097,14 @@ static enum try_read_result try_read_network(conn *c) {
     int num_allocs = 0;
     assert(c != NULL);
 
+#ifdef KERNELTRACE
+    bool record = false;
+    if (c->thread != NULL) {
+        int workerid = c->thread->worker_id;
+        record = (workerid == trace_workerid);
+    }
+#endif
+
     if (c->rcurr != c->rbuf) {
         if (c->rbytes != 0) /* otherwise there's nothing to copy */
             memmove(c->rbuf, c->rcurr, c->rbytes);
@@ -5123,7 +5135,17 @@ static enum try_read_result try_read_network(conn *c) {
         }
 
         int avail = c->rsize - c->rbytes;
+#ifdef KERNELTRACE
+        if (record) {
+            timetrace_record("[try_read_network] Before read, %d", c->sfd);
+        }
+#endif
         res = read(c->sfd, c->rbuf + c->rbytes, avail);
+#ifdef KERNELTRACE
+        if (record) {
+            timetrace_record("[try_read_network] After read, %d", c->sfd);
+        }
+#endif
         if (res > 0) {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.bytes_read += res;
@@ -5218,6 +5240,14 @@ void do_accept_new_conns(const bool do_accept) {
 static enum transmit_result transmit(conn *c) {
     assert(c != NULL);
 
+#ifdef KERNELTRACE
+    bool record = false;
+    if (c->thread != NULL) {
+        int workerid = c->thread->worker_id;
+        record = (workerid == trace_workerid);
+    }
+#endif
+
     if (c->msgcurr < c->msgused &&
             c->msglist[c->msgcurr].msg_iovlen == 0) {
         /* Finished writing the current msg; advance to the next. */
@@ -5226,8 +5256,17 @@ static enum transmit_result transmit(conn *c) {
     if (c->msgcurr < c->msgused) {
         ssize_t res;
         struct msghdr *m = &c->msglist[c->msgcurr];
-
+#ifdef KERNELTRACE
+        if (record) {
+            timetrace_record("[transmit] Before sendmsg, %d", c->sfd);
+        }
+#endif
         res = sendmsg(c->sfd, m, 0);
+#ifdef KERNELTRACE
+        if (record) {
+            timetrace_record("[transmit] After sendmsg, %d", c->sfd);
+        }
+#endif
         if (res > 0) {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.bytes_written += res;
@@ -5737,6 +5776,17 @@ void event_handler(const int fd, const short which, void *arg) {
 
     c->which = which;
 
+#ifdef KERNELTRACE
+    bool record = false;
+    if (c->thread != NULL) {
+        int workerid = c->thread->worker_id;
+        record = (workerid == trace_workerid);
+    }
+    if (record) {
+        timetrace_record("[event_handler] Start of event_handler, fd %d", fd);
+    }
+#endif
+
     /* sanity */
     if (fd != c->sfd) {
         if (settings.verbose > 0)
@@ -5752,6 +5802,11 @@ void event_handler(const int fd, const short which, void *arg) {
     drive_machine(c);
 
     /* wait for next event */
+#ifdef KERNELTRACE
+    if (record) {
+        timetrace_record("[event_handler] End of event_handler, fd %d", fd);
+    }
+#endif
     return;
 }
 
@@ -6409,6 +6464,23 @@ static void sig_handler(const int sig) {
     return;
 }
 
+
+// Print timetrace in this function
+// It allows us to dump timetraces in the middle
+static void* timetrace_log(void *args) {
+#ifdef KERNELTRACE
+    timetrace_print();
+#endif
+    return NULL;
+}
+
+static void sigusr_handler(const int sig) {
+    printf("User defined signal handled: %s. \n", strsignal(sig));
+    pthread_t tid;
+    pthread_create(&tid, NULL, timetrace_log, NULL);
+    return;
+}
+
 #ifndef HAVE_SIGIGNORE
 static int sigignore(int sig) {
     struct sigaction sa = { .sa_handler = SIG_IGN, .sa_flags = 0 };
@@ -6715,6 +6787,9 @@ int main (int argc, char **argv) {
     /* handle SIGINT and SIGTERM */
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
+
+    /* handle SIGUSR1, dump the timetraces */
+    signal(SIGUSR1, sigusr_handler);
 
     /* init settings */
     settings_init();
@@ -7654,6 +7729,10 @@ int main (int argc, char **argv) {
     timetrace_set_output_filename(coretraceName);
 #endif
 
+#ifdef KERNELTRACE
+    timetrace_set_keepoldevents(true);
+    timetrace_set_output_filename("timetrace_netowrk_original.log");
+#endif
     /* initialize other stuff */
     logger_init();
     stats_init();
