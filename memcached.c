@@ -337,7 +337,9 @@ static pthread_t conn_timeout_tid;
 #define CONNS_PER_SLICE 100
 #define TIMEOUT_MSG_SIZE (1 + sizeof(int))
 static void *conn_timeout_thread(void *arg) {
+#ifdef CORETRACE
     assign_corestats("time");
+#endif
     int i;
     conn *c;
     char buf[TIMEOUT_MSG_SIZE];
@@ -346,7 +348,9 @@ static void *conn_timeout_thread(void *arg) {
     useconds_t timeslice = 1000000 / (max_fds / CONNS_PER_SLICE);
 
     while(1) {
+#ifdef CORETRACE
         log_corestats();
+#endif
         if (settings.verbose > 2)
             fprintf(stderr, "idle timeout thread at top of connection list\n");
 
@@ -5088,6 +5092,9 @@ static enum try_read_result try_read_udp(conn *c) {
  * @return enum try_read_result
  */
 static enum try_read_result try_read_network(conn *c) {
+#ifdef IOCOUNT
+    coreStats* coreStat = GET_CORESTATS();
+#endif
     enum try_read_result gotdata = READ_NO_DATA_RECEIVED;
     int res;
     int num_allocs = 0;
@@ -5123,7 +5130,15 @@ static enum try_read_result try_read_network(conn *c) {
         }
 
         int avail = c->rsize - c->rbytes;
+#ifdef IOCOUNT
+        uint64_t beforeReadCycle = rdtsc();
+#endif
         res = read(c->sfd, c->rbuf + c->rbytes, avail);
+#ifdef IOCOUNT
+        if (coreStat != NULL) {
+            coreStat->networkReadTotalTime += cycles_to_ms(rdtsc() - beforeReadCycle);
+        }
+#endif
         if (res > 0) {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.bytes_read += res;
@@ -5217,6 +5232,9 @@ void do_accept_new_conns(const bool do_accept) {
  */
 static enum transmit_result transmit(conn *c) {
     assert(c != NULL);
+#ifdef IOCOUNT
+    coreStats* coreStat = GET_CORESTATS();
+#endif
 
     if (c->msgcurr < c->msgused &&
             c->msglist[c->msgcurr].msg_iovlen == 0) {
@@ -5227,7 +5245,15 @@ static enum transmit_result transmit(conn *c) {
         ssize_t res;
         struct msghdr *m = &c->msglist[c->msgcurr];
 
+#ifdef IOCOUNT
+        uint64_t beforeSendCycle = rdtsc();
+#endif
         res = sendmsg(c->sfd, m, 0);
+#ifdef IOCOUNT
+        if (coreStat != NULL) {
+            coreStat->networkSendTotalTime += cycles_to_ms(rdtsc() - beforeSendCycle);
+        }
+#endif
         if (res > 0) {
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.bytes_written += res;
@@ -5278,6 +5304,9 @@ static enum transmit_result transmit(conn *c) {
  * Also, benchmark using readv's.
  */
 static int read_into_chunked_item(conn *c) {
+#ifdef IOCOUNT
+    coreStats* coreStat = GET_CORESTATS();
+#endif
     int total = 0;
     int res;
     assert(c->rcurr != c->ritem);
@@ -5323,8 +5352,17 @@ static int read_into_chunked_item(conn *c) {
             }
         } else {
             /*  now try reading from the socket */
+#ifdef IOCOUNT
+            uint64_t beforeReadCycle = rdtsc();
+#endif
             res = read(c->sfd, ch->data + ch->used,
                     (unused > c->rlbytes ? c->rlbytes : unused));
+#ifdef IOCOUNT
+            if (coreStat != NULL) {
+                coreStat->networkReadTotalTime += cycles_to_ms(rdtsc() - beforeReadCycle);
+            }
+#endif
+
             if (res > 0) {
                 pthread_mutex_lock(&c->thread->stats.mutex);
                 c->thread->stats.bytes_read += res;
@@ -5372,6 +5410,11 @@ static void drive_machine(conn *c) {
 #endif
 
     assert(c != NULL);
+
+#if defined(CORETRACE) || defined(IOCOUNT)
+    log_corestats(); // Record core changes
+    coreStats* coreStat = GET_CORESTATS();
+#endif
 
     while (!stop) {
 
@@ -5531,7 +5574,16 @@ static void drive_machine(conn *c) {
                 }
 
                 /*  now try reading from the socket */
+#ifdef IOCOUNT
+                uint64_t beforeReadCycle = rdtsc();
+#endif
                 res = read(c->sfd, c->ritem, c->rlbytes);
+#ifdef IOCOUNT
+                if (coreStat != NULL) {
+                    coreStat->networkReadTotalTime += cycles_to_ms(rdtsc() - beforeReadCycle);
+                }
+#endif
+
                 if (res > 0) {
                     pthread_mutex_lock(&c->thread->stats.mutex);
                     c->thread->stats.bytes_read += res;
@@ -5601,7 +5653,16 @@ static void drive_machine(conn *c) {
             }
 
             /*  now try reading from the socket */
+#ifdef IOCOUNT
+            uint64_t beforeReadCycle = rdtsc();
+#endif
             res = read(c->sfd, c->rbuf, c->rsize > c->sbytes ? c->sbytes : c->rsize);
+#ifdef IOCOUNT
+            if (coreStat != NULL) {
+                coreStat->networkReadTotalTime += cycles_to_ms(rdtsc() - beforeReadCycle);
+            }
+#endif
+
             if (res > 0) {
                 pthread_mutex_lock(&c->thread->stats.mutex);
                 c->thread->stats.bytes_read += res;
@@ -5691,6 +5752,11 @@ static void drive_machine(conn *c) {
                         fprintf(stderr, "Unexpected state %d\n", c->state);
                     conn_set_state(c, conn_closing);
                 }
+#ifdef IOCOUNT
+                if (coreStat != NULL) {
+                    coreStat->requestCount++;
+                }
+#endif
                 break;
 
             case TRANSMIT_INCOMPLETE:
@@ -5731,6 +5797,17 @@ static void drive_machine(conn *c) {
 
 void event_handler(const int fd, const short which, void *arg) {
     conn *c;
+#if defined(CORETRACE) || defined(IOCOUNT)
+    coreStats* coreStat = GET_CORESTATS();
+    log_corestats();
+#endif
+
+#ifdef IOCOUNT
+    if ((coreStat != NULL) && (coreStat->libeventEndTime > 0)) {
+        coreStat->libeventTotalTime +=
+            cycles_to_ms(rdtsc() - coreStat->libeventEndTime);
+    }
+#endif
 
     c = (conn *)arg;
     assert(c != NULL);
@@ -5745,13 +5822,15 @@ void event_handler(const int fd, const short which, void *arg) {
         return;
     }
 
-#ifdef CORETRACE
-    log_corestats();
-#endif
-
     drive_machine(c);
 
     /* wait for next event */
+#ifdef IOCOUNT
+    if (coreStat != NULL) {
+        coreStat->libeventEndTime = rdtsc();
+    }
+#endif
+
     return;
 }
 
@@ -6409,6 +6488,40 @@ static void sig_handler(const int sig) {
     return;
 }
 
+// Print timetrace in this function
+// It allows us to dump timetraces in the middle
+static void* timetrace_log(void* args) {
+#if defined(TIMETRACE) || defined(TIMETRACE_HANDLE) || defined(CORETRACE)
+    timetrace_print();
+#elif defined(IOCOUNT)
+    print_corestats();
+#endif
+    return NULL;
+}
+
+// Cleanup all corestats
+static void* corestats_cleanup(void* args) {
+#ifdef IOCOUNT
+    for (int i = 0; i < corestats_count; ++i) {
+        clear_corestats(&corestats[i]);
+    }
+#endif
+    return NULL;
+}
+
+static void sigusr1_handler(const int sig) {
+    printf("User defined signal handled: %s. \n", strsignal(sig));
+    pthread_t tid;
+    pthread_create(&tid, NULL, timetrace_log, NULL);
+    return;
+}
+
+static void sigusr2_handler(const int sig) {
+    printf("User defined signal handled: %s. \n", strsignal(sig));
+    pthread_t tid;
+    pthread_create(&tid, NULL, corestats_cleanup, NULL);
+}
+
 #ifndef HAVE_SIGIGNORE
 static int sigignore(int sig) {
     struct sigaction sa = { .sa_handler = SIG_IGN, .sa_flags = 0 };
@@ -6525,7 +6638,7 @@ static bool _parse_slab_sizes(char *s, uint32_t *slab_sizes) {
 }
 
 void assign_corestats(const char* thread_name) {
-#ifdef CORETRACE
+#if defined(CORETRACE) || defined(IOCOUNT)
 	coreStats *coreStat = GET_CORESTATS();
 	if (coreStat != NULL) {
         return;
@@ -6538,9 +6651,48 @@ void assign_corestats(const char* thread_name) {
             thread_name);
     corestats_count++;
     pthread_mutex_unlock(&corestats_tid_lock);
+    coreStat = GET_CORESTATS();
+    clear_corestats(coreStat);
     log_corestats(); // Record the initial core
 #endif
 }
+
+// Remove corestats, reset counters to 0, except for cpuID
+void clear_corestats(coreStats* coreStat) {
+#if defined(CORETRACE) || defined(IOCOUNT)
+    if (coreStat == NULL) { return; }
+    coreStat->coreChangeCount = 0;
+    coreStat->libeventTotalTime = 0;
+    coreStat->networkReadTotalTime = 0;
+    coreStat->networkSendTotalTime = 0;
+    coreStat->requestCount = 0;
+    coreStat->libeventEndTime = 0;
+    return;
+#endif
+}
+
+// Print out all corestats
+void print_corestats() {
+#ifdef IOCOUNT
+    struct timeval currTime;
+    gettimeofday(&currTime, NULL);
+    uint64_t currTimeStamp = currTime.tv_sec * 1000000 + currTime.tv_usec;
+    fprintf(stderr, "[Time: %lu]\n", currTimeStamp);
+
+    // Loop through all corestats
+    for (int i = 0; i < corestats_count; ++i) {
+        fprintf(stderr, "%s, currentCore=%d, coreChanges=%lu, libeventTotalTime=%.3lf (us), "
+                "networkReadTotalTime=%.3lf (us), networkSendTotalTime=%.3lf (us), "
+                "requestCount=%lu\n", corestats[i].threadName,
+                corestats[i].cpuID, corestats[i].coreChangeCount,
+                corestats[i].libeventTotalTime, corestats[i].networkReadTotalTime,
+                corestats[i].networkSendTotalTime,
+                corestats[i].requestCount);
+    }
+    fprintf(stderr, "\n");
+#endif
+}
+
 
 void log_corestats() {
 #ifdef CORETRACE
@@ -6550,6 +6702,15 @@ void log_corestats() {
     if (cpuId != coreStat->cpuID) {
         timetrace_record("[%s] cpuid: %02d", coreStat->threadName, cpuId);
         coreStat->cpuID = cpuId;
+    }
+#endif
+#ifdef IOCOUNT
+    coreStats* coreStat = GET_CORESTATS();
+    if (coreStat == NULL) { return; }
+    int cpuId = sched_getcpu();
+    if (cpuId != coreStat->cpuID) {
+        coreStat->cpuID = cpuId;
+        coreStat->coreChangeCount++;
     }
 #endif
 }
@@ -6715,6 +6876,10 @@ int main (int argc, char **argv) {
     /* handle SIGINT and SIGTERM */
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
+
+    /* handle SIGUSR1, dump the timetraces */
+    signal(SIGUSR1, sigusr1_handler);
+    signal(SIGUSR2, sigusr2_handler);
 
     /* init settings */
     settings_init();
@@ -7429,7 +7594,10 @@ int main (int argc, char **argv) {
 	corestats_count = 0;
 
     corestats = calloc(settings.num_threads + 10, sizeof(coreStats));
+
+#ifdef CORETRACE
     assign_corestats("Main");
+#endif
 
     if (settings.item_size_max < 1024) {
         fprintf(stderr, "Item max size cannot be less than 1024 bytes.\n");

@@ -161,6 +161,12 @@ typedef void (*ADD_STAT)(const char *key, const uint16_t klen,
 typedef struct {
 	char threadName[50];
 	int cpuID;
+    uint64_t coreChangeCount;       // Total number of core changes
+    uint64_t libeventEndTime;       // Last time we end in event handler
+    double libeventTotalTime;       // Total time spent in event handler (us)
+    double networkReadTotalTime;    // Total time spent in read() (us)
+    double networkSendTotalTime;    // Total time spent in sendmsg() (us)
+    uint64_t requestCount;          // total requests handled
 } coreStats;
 
 /*
@@ -767,6 +773,8 @@ enum store_item_type store_item(item *item, int comm, conn *c);
 /* Assign core id stats */
 void assign_corestats(const char* thread_name);
 void log_corestats(void);
+void clear_corestats(coreStats* coreStat);
+void print_corestats(void);
 
 #if HAVE_DROP_PRIVILEGES
 extern void drop_privileges(void);
@@ -787,3 +795,18 @@ extern void drop_worker_privileges(void);
 
 #define likely(x)       __builtin_expect((x),1)
 #define unlikely(x)     __builtin_expect((x),0)
+
+/* This function is used to get the current value of the fine-grain CPU cycle
+ * counter (accessed via the RDTSCP instruction)
+ */
+static inline __attribute__((always_inline)) uint64_t rdtsc(void) {
+    uint32_t lo, hi;
+    __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
+    return (((uint64_t)hi << 32) | lo);
+}
+
+/* This function converts diffs in cycles to microseconds */
+static inline __attribute__((always_inline)) double
+cycles_to_ms(uint64_t diff) {
+    return (double)diff / 2000.0; // 2GHz
+}

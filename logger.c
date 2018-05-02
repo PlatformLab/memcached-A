@@ -502,11 +502,15 @@ static void logger_thread_sum_stats(struct logger_stats *ls) {
 
 /* Primary logger thread routine */
 static void *logger_thread(void *arg) {
+#ifdef CORETRACE
     assign_corestats("log");
+#endif
     useconds_t to_sleep = MIN_LOGGER_SLEEP;
     L_DEBUG("LOGGER: Starting logger thread\n");
     while (do_run_logger_thread) {
+#ifdef CORETRACE
         log_corestats();
+#endif
         int found_logs = 0;
         logger *l;
         struct logger_stats ls;

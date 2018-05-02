@@ -1533,7 +1533,9 @@ static pthread_t lru_maintainer_tid;
 #define MIN_LRU_MAINTAINER_SLEEP 1000
 
 static void *lru_maintainer_thread(void *arg) {
+#ifdef CORETRACE
     assign_corestats("lru");
+#endif
     slab_automove_reg_t *sam = &slab_automove_default;
 #ifdef EXTSTORE
     void *storage = arg;
@@ -1569,7 +1571,9 @@ static void *lru_maintainer_thread(void *arg) {
     if (settings.verbose > 2)
         fprintf(stderr, "Starting LRU maintainer background thread\n");
     while (do_run_lru_maintainer_thread) {
+#ifdef CORETRACE
         log_corestats();
+#endif
         pthread_mutex_unlock(&lru_maintainer_lock);
         if (to_sleep)
             usleep(to_sleep);
