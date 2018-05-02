@@ -5224,6 +5224,9 @@ static enum try_read_result try_read_network(conn *c) {
 //#endif
 //
 //#endif
+#ifdef IOCOUNT
+    coreStats* coreStat = GET_CORESTATS();
+#endif
     enum try_read_result gotdata = READ_NO_DATA_RECEIVED;
     int res;
     int num_allocs = 0;
@@ -5259,7 +5262,15 @@ static enum try_read_result try_read_network(conn *c) {
         }
 
         int avail = c->rsize - c->rbytes;
+#ifdef IOCOUNT
+        uint64_t beforeReadCycle = rdtsc();
+#endif
         res = read(c->sfd, c->rbuf + c->rbytes, avail);
+#ifdef IOCOUNT
+        if (coreStat != NULL) {
+            coreStat->networkReadTotalTime += cycles_to_ms(rdtsc() - beforeReadCycle);
+        }
+#endif
         if (res > 0) {
 //#ifdef TIMETRACE
 //            if (record) {
@@ -5414,6 +5425,9 @@ static enum transmit_result transmit(conn *c) {
 #endif
 
 #endif
+#ifdef IOCOUNT
+    coreStats* coreStat = GET_CORESTATS();
+#endif
 
     if (c->msgcurr < c->msgused &&
             c->msglist[c->msgcurr].msg_iovlen == 0) {
@@ -5428,7 +5442,17 @@ static enum transmit_result transmit(conn *c) {
             timetrace_record("[transmit] Before sendmsg %d", c->sfd);
         }
 #endif
+#ifdef IOCOUNT
+        uint64_t beforeSendCycle = rdtsc();
+#endif
+
         res = sendmsg(c->sfd, m, 0);
+#ifdef IOCOUNT
+        if (coreStat != NULL) {
+            coreStat->networkSendTotalTime += cycles_to_ms(rdtsc() - beforeSendCycle);
+        }
+#endif
+
 #ifdef TIMETRACE
             if (record) {
                 timetrace_record("[transmit] After sendmsg, before stats.mutex %d", c->sfd);
@@ -5500,6 +5524,10 @@ static int read_into_chunked_item(conn *c) {
 #endif
 
 #endif
+#ifdef IOCOUNT
+    coreStats* coreStat = GET_CORESTATS();
+#endif
+
     int total = 0;
     int res;
     assert(c->rcurr != c->ritem);
@@ -5545,8 +5573,17 @@ static int read_into_chunked_item(conn *c) {
             }
         } else {
             /*  now try reading from the socket */
+#ifdef IOCOUNT
+            uint64_t beforeReadCycle = rdtsc();
+#endif
             res = read(c->sfd, ch->data + ch->used,
                     (unused > c->rlbytes ? c->rlbytes : unused));
+#ifdef IOCOUNT
+            if (coreStat != NULL) {
+                coreStat->networkReadTotalTime += cycles_to_ms(rdtsc() - beforeReadCycle);
+            }
+#endif
+
             if (res > 0) {
 #ifdef TIMETRACE
             if (record) {
@@ -5659,6 +5696,7 @@ static void* drive_machine(void *vc) {
 
 #if defined(CORETRACE) || defined(IOCOUNT)
     log_corestats(); // Record core changes
+    coreStats* coreStat = GET_CORESTATS();
 #endif
 
     while (!stop) {
@@ -5901,7 +5939,16 @@ static void* drive_machine(void *vc) {
                 }
 
                 /*  now try reading from the socket */
+#ifdef IOCOUNT
+                uint64_t beforeReadCycle = rdtsc();
+#endif
                 res = read(c->sfd, c->ritem, c->rlbytes);
+#ifdef IOCOUNT
+                if (coreStat != NULL) {
+                    coreStat->networkReadTotalTime += cycles_to_ms(rdtsc() - beforeReadCycle);
+                }
+#endif
+
                 if (res > 0) {
 #ifdef TIMETRACE
                     if (record) {
@@ -5985,7 +6032,16 @@ static void* drive_machine(void *vc) {
             }
 
             /*  now try reading from the socket */
+#ifdef IOCOUNT
+            uint64_t beforeReadCycle = rdtsc();
+#endif
             res = read(c->sfd, c->rbuf, c->rsize > c->sbytes ? c->sbytes : c->rsize);
+#ifdef IOCOUNT
+            if (coreStat != NULL) {
+                coreStat->networkReadTotalTime += cycles_to_ms(rdtsc() - beforeReadCycle);
+            }
+#endif
+
             if (res > 0) {
                 pthread_mutex_lock(&c->thread->stats.mutex);
                 c->thread->stats.bytes_read += res;
@@ -6076,6 +6132,11 @@ static void* drive_machine(void *vc) {
                         fprintf(stderr, "Unexpected state %d\n", c->state);
                     conn_set_state(c, conn_closing);
                 }
+#ifdef IOCOUNT
+                if (coreStat != NULL) {
+                    coreStat->requestCount++;
+                }
+#endif
                 break;
 
             case TRANSMIT_INCOMPLETE:
@@ -6161,7 +6222,7 @@ void event_handler(const int fd, const short which, void *arg) {
 #ifdef IOCOUNT
     if ((coreStat != NULL) && (coreStat->libeventEndTime > 0)) {
         coreStat->libeventTotalTime +=
-            (rdtsc() - coreStat->libeventEndTime) / 2000.0; // 2GHz
+            cycles_to_ms(rdtsc() - coreStat->libeventEndTime);
     }
 #endif
     // handled_event = true; // For utilization count

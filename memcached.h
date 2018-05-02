@@ -823,3 +823,8 @@ static inline __attribute__((always_inline)) uint64_t rdtsc(void) {
     return (((uint64_t)hi << 32) | lo);
 }
 
+/* This function converts diffs in cycles to microseconds */
+static inline __attribute__((always_inline)) double
+cycles_to_ms(uint64_t diff) {
+    return (double)diff / 2000.0; // 2GHz
+}
