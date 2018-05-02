@@ -484,16 +484,16 @@ void dispatch_conn_new(int sfd, enum conn_states init_state, int event_flags,
 
     LIBEVENT_THREAD *thread = threads + tid;
 
-    pthread_mutex_lock(&thread->stats.mutex);
-    thread->stats.conns_count++;
-    fprintf(stderr, "\n Dispatch fd %d to tid %d, total conns on it: %d \n",
-            sfd, tid, thread->stats.conns_count);
-    fprintf(stderr, " Thread id \t #Connections \n");
-    fprintf(stderr, "==============================\n");
-    for (int i = 0; i < settings.num_threads; ++i) {
-        fprintf(stderr, " %7d \t %7d \n", i, (threads + i)->stats.conns_count);
-    }
-    pthread_mutex_unlock(&thread->stats.mutex);
+//    pthread_mutex_lock(&thread->stats.mutex);
+//    thread->stats.conns_count++;
+//    fprintf(stderr, "\n Dispatch fd %d to tid %d, total conns on it: %d \n",
+//            sfd, tid, thread->stats.conns_count);
+//    fprintf(stderr, " Thread id \t #Connections \n");
+//    fprintf(stderr, "==============================\n");
+//    for (int i = 0; i < settings.num_threads; ++i) {
+//        fprintf(stderr, " %7d \t %7d \n", i, (threads + i)->stats.conns_count);
+//    }
+//    pthread_mutex_unlock(&thread->stats.mutex);
     last_thread = tid;
 
     item->sfd = sfd;
