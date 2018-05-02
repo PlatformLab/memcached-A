@@ -5414,6 +5414,13 @@ static void drive_machine(conn *c) {
 #if defined(CORETRACE) || defined(IOCOUNT)
     log_corestats(); // Record core changes
     coreStats* coreStat = GET_CORESTATS();
+
+    // record drive machine turnaround time.
+    uint64_t driveMachineStartTime = rdtsc();
+    if ((coreStat != NULL) && (coreStat->turnaroundEndTime > 0)) {
+        coreStat->turnaroundTotalTime +=
+            cycles_to_ms(driveMachineStartTime - coreStat->turnaroundEndTime);
+    }
 #endif
 
     while (!stop) {
@@ -5792,6 +5799,13 @@ static void drive_machine(conn *c) {
         }
     }
 
+#ifdef IOCOUNT
+    if (coreStat != NULL) {
+        coreStat->turnaroundEndTime = rdtsc();
+        coreStat->driveMachineTotalTime +=
+            cycles_to_ms(coreStat->turnaroundEndTime - driveMachineStartTime);
+    }
+#endif
     return;
 }
 
@@ -6667,6 +6681,10 @@ void clear_corestats(coreStats* coreStat) {
     coreStat->networkSendTotalTime = 0;
     coreStat->requestCount = 0;
     coreStat->libeventEndTime = 0;
+    coreStat->dispatchCount = 0;
+    coreStat->driveMachineTotalTime = 0;
+    coreStat->turnaroundTotalTime = 0;
+    coreStat->turnaroundEndTime = 0;
     return;
 #endif
 }
@@ -6683,11 +6701,13 @@ void print_corestats() {
     for (int i = 0; i < corestats_count; ++i) {
         fprintf(stderr, "%s, currentCore=%d, coreChanges=%lu, libeventTotalTime=%.3lf (us), "
                 "networkReadTotalTime=%.3lf (us), networkSendTotalTime=%.3lf (us), "
-                "requestCount=%lu\n", corestats[i].threadName,
+                "requestCount=%lu, dispatchCount=%lu, requestTotalTime=%.3lf (us), "
+                "turnaroundTotalTime=%.3lf (us)\n", corestats[i].threadName,
                 corestats[i].cpuID, corestats[i].coreChangeCount,
                 corestats[i].libeventTotalTime, corestats[i].networkReadTotalTime,
                 corestats[i].networkSendTotalTime,
-                corestats[i].requestCount);
+                corestats[i].requestCount, corestats[i].dispatchCount,
+                corestats[i].driveMachineTotalTime, corestats[i].turnaroundTotalTime);
     }
     fprintf(stderr, "\n");
 #endif
