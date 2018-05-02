@@ -197,10 +197,14 @@ static volatile int do_run_maintenance_thread = 1;
 int hash_bulk_move = DEFAULT_HASH_BULK_MOVE;
 
 static void *assoc_maintenance_thread(void *arg) {
+#ifdef CORETRACE
     assign_corestats("assoc");
+#endif
     mutex_lock(&maintenance_lock);
     while (do_run_maintenance_thread) {
+#ifdef CORETRACE
         log_corestats();
+#endif
         int ii = 0;
 
         /* There is only one expansion thread, so no need to global lock. */

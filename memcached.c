@@ -345,7 +345,9 @@ static pthread_t conn_timeout_tid;
 #define CONNS_PER_SLICE 100
 #define TIMEOUT_MSG_SIZE (1 + sizeof(int))
 static void *conn_timeout_thread(void *arg) {
+#ifdef CORETRACE
     assign_corestats("time");
+#endif
     int i;
     conn *c;
     char buf[TIMEOUT_MSG_SIZE];
@@ -354,7 +356,9 @@ static void *conn_timeout_thread(void *arg) {
     useconds_t timeslice = 1000000 / (max_fds / CONNS_PER_SLICE);
 
     while(1) {
+#ifdef CORETRACE
         log_corestats();
+#endif
         if (settings.verbose > 2)
             fprintf(stderr, "idle timeout thread at top of connection list\n");
 
@@ -5653,7 +5657,10 @@ static void* drive_machine(void *vc) {
         c->thread = thread;
     }
 
+#if defined(CORETRACE) || defined(IOCOUNT)
     log_corestats(); // Record core changes
+#endif
+
     while (!stop) {
 
         switch(c->state) {
@@ -6146,10 +6153,17 @@ void event_handler(const int fd, const short which, void *arg) {
     }
 #endif
 
-#ifdef CORETRACE
+#if defined(CORETRACE) || defined(IOCOUNT)
+    coreStats* coreStat = GET_CORESTATS();
     log_corestats();
 #endif
 
+#ifdef IOCOUNT
+    if ((coreStat != NULL) && (coreStat->libeventEndTime > 0)) {
+        coreStat->libeventTotalTime +=
+            (rdtsc() - coreStat->libeventEndTime) / 2000.0; // 2GHz
+    }
+#endif
     // handled_event = true; // For utilization count
 
     c = (conn *)arg;
@@ -6188,6 +6202,12 @@ void event_handler(const int fd, const short which, void *arg) {
             if (record && thread != NULL) {
                 timetrace_record("[event_handler] Conn closing in dispatch %d, fd %d",
                                   thread->worker_id, fd);
+            }
+#endif
+
+#ifdef IOCOUNT
+            if (coreStat != NULL) {
+                coreStat->libeventEndTime = rdtsc();
             }
 #endif
             return;
@@ -6244,6 +6264,11 @@ void event_handler(const int fd, const short which, void *arg) {
                              " in dispatch %d, fd %d", thread->worker_id, fd);
         }
 #endif
+#ifdef IOCOUNT
+        if (coreStat != NULL) {
+            coreStat->libeventEndTime = rdtsc();
+        }
+#endif
         return;
     }
 
@@ -6254,6 +6279,12 @@ void event_handler(const int fd, const short which, void *arg) {
     }
 #endif
     /* wait for next event */
+#ifdef IOCOUNT
+    if (coreStat != NULL) {
+        coreStat->libeventEndTime = rdtsc();
+    }
+#endif
+
     return;
 }
 
@@ -6923,15 +6954,35 @@ static void sig_handler(const int sig) {
 // Print timetrace in this function
 // It allows us to dump timetraces in the middle
 static void* timetrace_log(void* args) {
+#if defined(TIMETRACE) || defined(TIMETRACE_HANDLE) || defined(CORETRACE)
     timetrace_print();
+#elif defined(IOCOUNT)
+    print_corestats();
+#endif
     return NULL;
 }
 
-static void sigusr_handler(const int sig) {
+// Cleanup all corestats
+static void* corestats_cleanup(void* args) {
+#ifdef IOCOUNT
+    for (int i = 0; i < corestats_count; ++i) {
+        clear_corestats(&corestats[i]);
+    }
+#endif
+    return NULL;
+}
+
+static void sigusr1_handler(const int sig) {
     printf("User defined signal handled: %s. \n", strsignal(sig));
     pthread_t tid;
     pthread_create(&tid, NULL, timetrace_log, NULL);
     return;
+}
+
+static void sigusr2_handler(const int sig) {
+    printf("User defined signal handled: %s. \n", strsignal(sig));
+    pthread_t tid;
+    pthread_create(&tid, NULL, corestats_cleanup, NULL);
 }
 
 #ifndef HAVE_SIGIGNORE
@@ -7086,7 +7137,7 @@ static void* main_wrapper(void *arg) {
 }
 
 void assign_corestats(const char* thread_name) {
-#ifdef CORETRACE
+#if defined(CORETRACE) || defined(IOCOUNT)
 	coreStats *coreStat = GET_CORESTATS();
 	if (coreStat != NULL) {
         return;
@@ -7099,9 +7150,48 @@ void assign_corestats(const char* thread_name) {
             thread_name);
     corestats_count++;
     pthread_mutex_unlock(&corestats_tid_lock);
+    coreStat = GET_CORESTATS();
+    clear_corestats(coreStat);
     log_corestats(); // Record the initial core
 #endif
 }
+
+// Remove corestats, reset counters to 0, except for cpuID
+void clear_corestats(coreStats* coreStat) {
+#if defined(CORETRACE) || defined(IOCOUNT)
+    if (coreStat == NULL) { return; }
+    coreStat->coreChangeCount = 0;
+    coreStat->libeventTotalTime = 0;
+    coreStat->networkReadTotalTime = 0;
+    coreStat->networkSendTotalTime = 0;
+    coreStat->requestCount = 0;
+    coreStat->libeventEndTime = 0;
+    return;
+#endif
+}
+
+// Print out all corestats
+void print_corestats() {
+#ifdef IOCOUNT
+    struct timeval currTime;
+    gettimeofday(&currTime, NULL);
+    uint64_t currTimeStamp = currTime.tv_sec * 1000000 + currTime.tv_usec;
+    fprintf(stderr, "[Time: %lu]\n", currTimeStamp);
+
+    // Loop through all corestats
+    for (int i = 0; i < corestats_count; ++i) {
+        fprintf(stderr, "%s: coreChanges=%lu, libeventTotalTime=%.3lf (us), "
+                "networkReadTotalTime=%.3lf (us), networkSendTotalTime=%.3lf (us), "
+                "requestCount=%lu\n",
+                corestats[i].threadName, corestats[i].coreChangeCount,
+                corestats[i].libeventTotalTime, corestats[i].networkReadTotalTime,
+                corestats[i].networkSendTotalTime,
+                corestats[i].requestCount);
+    }
+    fprintf(stderr, "\n");
+#endif
+}
+
 
 void log_corestats() {
 #ifdef CORETRACE
@@ -7111,6 +7201,15 @@ void log_corestats() {
     if (cpuId != coreStat->cpuID) {
         timetrace_record("[%s] cpuid: %02d", coreStat->threadName, cpuId);
         coreStat->cpuID = cpuId;
+    }
+#endif
+#ifdef IOCOUNT
+    coreStats* coreStat = GET_CORESTATS();
+    if (coreStat == NULL) { return; }
+    int cpuId = sched_getcpu();
+    if (cpuId != coreStat->cpuID) {
+        coreStat->cpuID = cpuId;
+        coreStat->coreChangeCount++;
     }
 #endif
 }
@@ -7278,7 +7377,8 @@ int main (int argc, char **argv) {
     signal(SIGTERM, sig_handler);
 
     /* handle SIGUSR1, dump the timetraces */
-    signal(SIGUSR1, sigusr_handler);
+    signal(SIGUSR1, sigusr1_handler);
+    signal(SIGUSR2, sigusr2_handler);
 
     /* setup pthread for libevent */
     evthread_use_pthreads();
@@ -8034,7 +8134,10 @@ int main (int argc, char **argv) {
 
     nprocs = get_nprocs();
     corestats = calloc(nprocs + 10, sizeof(coreStats));
+
+#ifdef CORETRACE
     assign_corestats("Main");
+#endif
 
     if (settings.item_size_max < 1024) {
         fprintf(stderr, "Item max size cannot be less than 1024 bytes.\n");
