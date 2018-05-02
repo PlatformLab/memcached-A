@@ -173,6 +173,8 @@ typedef struct {
     double networkReadTotalTime;    // Total time spent in read() (us)
     double networkSendTotalTime;    // Total time spent in sendmsg() (us)
     uint64_t requestCount;          // total requests handled
+    uint64_t dispatchCount;         // Total number of dispatched and handled requests
+    pthread_mutex_t dispatchMutex;  // mutex to protect updating dispatchCount
 } coreStats;
 
 /*
@@ -682,6 +684,10 @@ struct conn {
 
     /* For Arachne threads */
     bool finished;
+
+#ifdef IOCOUNT
+    coreStats* dispatch_stat;   /* A pointer to its dispatch thread */
+#endif
 };
 
 /* array of conn structures, indexed by file descriptor */

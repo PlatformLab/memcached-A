@@ -6136,6 +6136,9 @@ static void* drive_machine(void *vc) {
                 if (coreStat != NULL) {
                     coreStat->requestCount++;
                 }
+                if (c->dispatch_stat != NULL) {
+                    c->dispatch_stat->dispatchCount++; // may have race condition
+                }
 #endif
                 break;
 
@@ -6204,6 +6207,15 @@ static void* drive_machine(void *vc) {
 void event_handler(const int fd, const short which, void *arg) {
     conn *c;
     int ret;
+    // handled_event = true; // For utilization count
+
+    c = (conn *)arg;
+    assert(c != NULL);
+
+    c->which = which;
+
+    bool finished = c->finished;
+    int state = c->state;
 
 #ifdef TIMETRACE_HANDLE
     LIBEVENT_THREAD *thread = GET_THREAD();
@@ -6224,17 +6236,8 @@ void event_handler(const int fd, const short which, void *arg) {
         coreStat->libeventTotalTime +=
             cycles_to_ms(rdtsc() - coreStat->libeventEndTime);
     }
+    c->dispatch_stat = coreStat; // assign to dispatch thread.
 #endif
-    // handled_event = true; // For utilization count
-
-    c = (conn *)arg;
-    assert(c != NULL);
-
-    c->which = which;
-
-    bool finished = c->finished;
-    int state = c->state;
-
     /* sanity */
     if (fd != c->sfd) {
         if (settings.verbose > 0)
@@ -7207,6 +7210,7 @@ void assign_corestats(const char* thread_name) {
     pthread_setspecific(corestats_key, &corestats[corestats_count]);
     strcpy(corestats[corestats_count].threadName, thread_name);
     corestats[corestats_count].cpuID = -1;
+    pthread_mutex_init(&corestats[corestats_count].dispatchMutex, NULL);
     fprintf(stderr, "Setup core stats %d to thread %s \n", corestats_count,
             thread_name);
     corestats_count++;
@@ -7227,6 +7231,7 @@ void clear_corestats(coreStats* coreStat) {
     coreStat->networkSendTotalTime = 0;
     coreStat->requestCount = 0;
     coreStat->libeventEndTime = 0;
+    coreStat->dispatchCount = 0;
     return;
 #endif
 }
@@ -7243,11 +7248,11 @@ void print_corestats() {
     for (int i = 0; i < corestats_count; ++i) {
         fprintf(stderr, "%s, currentCore=%d, coreChanges=%lu, libeventTotalTime=%.3lf (us), "
                 "networkReadTotalTime=%.3lf (us), networkSendTotalTime=%.3lf (us), "
-                "requestCount=%lu\n", corestats[i].threadName,
+                "requestCount=%lu, dispatchCount=%lu\n", corestats[i].threadName,
                 corestats[i].cpuID, corestats[i].coreChangeCount,
                 corestats[i].libeventTotalTime, corestats[i].networkReadTotalTime,
                 corestats[i].networkSendTotalTime,
-                corestats[i].requestCount);
+                corestats[i].requestCount, corestats[i].dispatchCount);
     }
     fprintf(stderr, "\n");
 #endif
