@@ -7241,10 +7241,10 @@ void print_corestats() {
 
     // Loop through all corestats
     for (int i = 0; i < corestats_count; ++i) {
-        fprintf(stderr, "%s: coreChanges=%lu, libeventTotalTime=%.3lf (us), "
+        fprintf(stderr, "%s, currentCore=%d, coreChanges=%lu, libeventTotalTime=%.3lf (us), "
                 "networkReadTotalTime=%.3lf (us), networkSendTotalTime=%.3lf (us), "
-                "requestCount=%lu\n",
-                corestats[i].threadName, corestats[i].coreChangeCount,
+                "requestCount=%lu\n", corestats[i].threadName,
+                corestats[i].cpuID, corestats[i].coreChangeCount,
                 corestats[i].libeventTotalTime, corestats[i].networkReadTotalTime,
                 corestats[i].networkSendTotalTime,
                 corestats[i].requestCount);
