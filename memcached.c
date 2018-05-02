@@ -5697,6 +5697,13 @@ static void* drive_machine(void *vc) {
 #if defined(CORETRACE) || defined(IOCOUNT)
     log_corestats(); // Record core changes
     coreStats* coreStat = GET_CORESTATS();
+
+    // record drive machine turnaround time.
+    uint64_t driveMachineStartTime = rdtsc();
+    if ((coreStat != NULL) && (coreStat->turnaroundEndTime > 0)) {
+        coreStat->turnaroundTotalTime +=
+            cycles_to_ms(driveMachineStartTime - coreStat->turnaroundEndTime);
+    }
 #endif
 
     while (!stop) {
@@ -5870,6 +5877,13 @@ static void* drive_machine(void *vc) {
 #ifdef TIMETRACE
                         if (record) {
                             timetrace_record("[drive_machine] End of drive machine %d, after create thread", c->sfd);
+                        }
+#endif
+#ifdef IOCOUNT
+                        if (coreStat != NULL) {
+                            coreStat->turnaroundEndTime = rdtsc();
+                            coreStat->driveMachineTotalTime +=
+                                cycles_to_ms(coreStat->turnaroundEndTime - driveMachineStartTime);
                         }
 #endif
                         return NULL; // Don't update finished to true! Return here.
@@ -6199,6 +6213,14 @@ static void* drive_machine(void *vc) {
     // uint32_t delta_ns = (end_time - start_time) / 2;
     if (record) {
         timetrace_record("[drive_machine] End of drive machine %d", c->sfd);
+    }
+#endif
+
+#ifdef IOCOUNT
+    if (coreStat != NULL) {
+        coreStat->turnaroundEndTime = rdtsc();
+        coreStat->driveMachineTotalTime +=
+            cycles_to_ms(coreStat->turnaroundEndTime - driveMachineStartTime);
     }
 #endif
     return NULL;
@@ -7232,6 +7254,9 @@ void clear_corestats(coreStats* coreStat) {
     coreStat->requestCount = 0;
     coreStat->libeventEndTime = 0;
     coreStat->dispatchCount = 0;
+    coreStat->driveMachineTotalTime = 0;
+    coreStat->turnaroundTotalTime = 0;
+    coreStat->turnaroundEndTime = 0;
     return;
 #endif
 }
@@ -7248,11 +7273,13 @@ void print_corestats() {
     for (int i = 0; i < corestats_count; ++i) {
         fprintf(stderr, "%s, currentCore=%d, coreChanges=%lu, libeventTotalTime=%.3lf (us), "
                 "networkReadTotalTime=%.3lf (us), networkSendTotalTime=%.3lf (us), "
-                "requestCount=%lu, dispatchCount=%lu\n", corestats[i].threadName,
+                "requestCount=%lu, dispatchCount=%lu, requestTotalTime=%.3lf (us), "
+                "turnaroundTotalTime=%.3lf (us)\n", corestats[i].threadName,
                 corestats[i].cpuID, corestats[i].coreChangeCount,
                 corestats[i].libeventTotalTime, corestats[i].networkReadTotalTime,
                 corestats[i].networkSendTotalTime,
-                corestats[i].requestCount, corestats[i].dispatchCount);
+                corestats[i].requestCount, corestats[i].dispatchCount,
+                corestats[i].driveMachineTotalTime, corestats[i].turnaroundTotalTime);
     }
     fprintf(stderr, "\n");
 #endif

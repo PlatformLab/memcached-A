@@ -173,6 +173,9 @@ typedef struct {
     double networkReadTotalTime;    // Total time spent in read() (us)
     double networkSendTotalTime;    // Total time spent in sendmsg() (us)
     uint64_t requestCount;          // total requests handled
+    double driveMachineTotalTime;   // Total time spent in drive machine
+    double turnaroundTotalTime;     // Total time spent in Arachne turnaround
+    uint64_t turnaroundEndTime;     // Last time we exit drive machine.
     uint64_t dispatchCount;         // Total number of dispatched and handled requests
     pthread_mutex_t dispatchMutex;  // mutex to protect updating dispatchCount
 } coreStats;
