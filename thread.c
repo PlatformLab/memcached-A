@@ -453,7 +453,9 @@ static void setup_arachne_resources(int nthreads) {
  */
 static void *worker_libevent(void *arg) {
     int ret;
-    fprintf(stderr, "Worker Successfully have an exclusive core! \n");
+    int cpuId = sched_getcpu();
+    fprintf(stderr, "Worker Successfully have an exclusive core: %d \n",
+            cpuId);
     /* Set thread local thread_key */
     assign_thread();
     // LIBEVENT_THREAD *me = arg;

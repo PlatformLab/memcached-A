@@ -5690,6 +5690,9 @@ static void* drive_machine(void *vc) {
             char namebuff[20];
             sprintf(namebuff, "w%02d", thread->worker_id);
             assign_corestats(namebuff);
+
+            int cpuId = sched_getcpu();
+            fprintf(stderr, "%s: on core %d \n", namebuff, cpuId);
         }
         c->thread = thread;
     }
