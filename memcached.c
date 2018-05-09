@@ -494,7 +494,7 @@ void conn_close_idle(conn *c) {
 
         conn_set_state(c, conn_closing);
         // drive_machine(c);
-        conn_close(c); //XXX: we assume that we only use TCP, so just close.
+        conn_close(c); //XXX Qian: we assume that we only use TCP, so just close.
 
     }
 }
@@ -1664,12 +1664,6 @@ static void process_bin_get_or_touch(conn *c) {
         uint16_t keylen = 0;
         uint32_t bodylen = sizeof(rsp->message.body) + (it->nbytes - 2);
 
-//#ifdef TIMETRACE
-//        if (record) {
-//            timetrace_record("[process_bin_get] Before stats.mutex hit: %d", c->sfd);
-//        }
-//#endif
-
         pthread_mutex_lock(&c->thread->stats.mutex);
         if (should_touch) {
             c->thread->stats.touch_cmds++;
@@ -1680,11 +1674,6 @@ static void process_bin_get_or_touch(conn *c) {
         }
         pthread_mutex_unlock(&c->thread->stats.mutex);
 
-//#ifdef TIMETRACE
-//        if (record) {
-//            timetrace_record("[process_bin_get] After stats.mutex hit: %d", c->sfd);
-//        }
-//#endif
         if (should_touch) {
             MEMCACHED_COMMAND_TOUCH(c->sfd, ITEM_key(it), it->nkey,
                                     it->nbytes, ITEM_get_cas(it));
@@ -1766,12 +1755,6 @@ static void process_bin_get_or_touch(conn *c) {
     }
 
     if (failed) {
-#ifdef TIMETRACE
-        if (record) {
-            timetrace_record("[process_bin_get] Before stats.mutex miss: %d", c->sfd);
-        }
-#endif
-
         pthread_mutex_lock(&c->thread->stats.mutex);
         if (should_touch) {
             c->thread->stats.touch_cmds++;
@@ -1781,12 +1764,6 @@ static void process_bin_get_or_touch(conn *c) {
             c->thread->stats.get_misses++;
         }
         pthread_mutex_unlock(&c->thread->stats.mutex);
-
-#ifdef TIMETRACE
-        if (record) {
-            timetrace_record("[process_bin_get] After stats.mutex miss: %d", c->sfd);
-        }
-#endif
 
         if (should_touch) {
             MEMCACHED_COMMAND_TOUCH(c->sfd, key, nkey, -1, 0);
@@ -5216,14 +5193,6 @@ static enum try_read_result try_read_udp(conn *c) {
  * @return enum try_read_result
  */
 static enum try_read_result try_read_network(conn *c) {
-//#ifdef TIMETRACE
-//     bool record = (c->sfd == trace_sfd);
-//#ifdef SINGLECORE
-//    int coreid = arachne_thread_getid();
-//    record = (record && (coreid == trace_coreid));
-//#endif
-//
-//#endif
 #ifdef IOCOUNT
     coreStats* coreStat = GET_CORESTATS();
 #endif
@@ -5272,19 +5241,9 @@ static enum try_read_result try_read_network(conn *c) {
         }
 #endif
         if (res > 0) {
-//#ifdef TIMETRACE
-//            if (record) {
-//                timetrace_record("[try_read_network] Finish reading to buffer. Before stats.mutex %d", c->sfd);
-//            }
-//#endif
             pthread_mutex_lock(&c->thread->stats.mutex);
             c->thread->stats.bytes_read += res;
             pthread_mutex_unlock(&c->thread->stats.mutex);
-//#ifdef TIMETRACE
-//            if (record) {
-//                timetrace_record("[try_read_network] After stats.mutex %d", c->sfd);
-//            }
-//#endif
             gotdata = READ_DATA_RECEIVED;
             c->rbytes += res;
             if (res == avail) {
@@ -5309,7 +5268,6 @@ static enum try_read_result try_read_network(conn *c) {
 static bool update_event(conn *c, const int new_flags) {
     assert(c != NULL);
 #ifdef TIMETRACE
-    // uint64_t start_time = rdtsc();
     bool record = (c->sfd == trace_sfd);
 #ifdef SINGLECORE
     int coreid = arachne_thread_getid();
@@ -5323,7 +5281,6 @@ static bool update_event(conn *c, const int new_flags) {
 #endif
 
     struct event_base *base = c->event.ev_base;
-    // XXX: Qian: still need to readd, because we deleted in handler
     if ((c->ev_flags == new_flags)) {
 #ifdef TIMETRACE
         if (record) {
@@ -5352,8 +5309,6 @@ static bool update_event(conn *c, const int new_flags) {
                 (new_flags & EV_READ), (new_flags & EV_WRITE));
     }
 #ifdef TIMETRACE
-    // uint64_t end_time = rdtsc();
-    // uint32_t delta_time = (end_time - start_time)/2;
     if (record) {
         timetrace_record("[update_event] Finish update event, after event_add: %d", c->sfd);
     }
@@ -5486,12 +5441,6 @@ static enum transmit_result transmit(conn *c) {
             return TRANSMIT_INCOMPLETE;
         }
         if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-//            if (!update_event(c, EV_WRITE | EV_PERSIST)) {
-//                if (settings.verbose > 0)
-//                    fprintf(stderr, "Couldn't update event\n");
-//                conn_set_state(c, conn_closing);
-//                return TRANSMIT_HARD_ERROR;
-//            }
             arachne_thread_yield(); // XXX Qian: just yield here, don't update to EV_WRITE
             return TRANSMIT_SOFT_ERROR;
         }
@@ -5628,9 +5577,6 @@ static int read_into_chunked_item(conn *c) {
 
 static void* drive_machine(void *vc) {
     conn* c = (conn*)vc;
-//    if (c->sfd == trace_sfd) {
-//        fprintf(stderr, "CoreID is: %d \n", arachne_thread_getid());
-//    }
 #ifdef TIMETRACE
     bool record = false;
     if (c->sfd == trace_sfd) {
@@ -5649,7 +5595,6 @@ static void* drive_machine(void *vc) {
     if (record) {
         timetrace_record("[drive_machine] Start in drive machine %d", c->sfd);
     }
-    // uint64_t start_time = rdtsc();
 #endif
 
     bool stop = false;
@@ -5670,7 +5615,8 @@ static void* drive_machine(void *vc) {
 
     assert(c != NULL);
 
-    /* Skip the connection dispatcher thread */
+    /* Skip the connection dispatcher thread, allocate coreStats structure
+       for each worker kernel thread */
     if (c->state != conn_listening) {
         LIBEVENT_THREAD *thread = GET_THREAD();
         if (thread == NULL) {
@@ -5713,7 +5659,6 @@ static void* drive_machine(void *vc) {
 
         switch(c->state) {
         case conn_listening:
-            // fprintf(stderr, "thread in conn_listening \n");
             addrlen = sizeof(addr);
 #ifdef HAVE_ACCEPT4
             if (use_accept4) {
@@ -5769,12 +5714,7 @@ static void* drive_machine(void *vc) {
             break;
 
         case conn_waiting:
-//            if (!update_event(c, EV_READ | EV_PERSIST)) {
-//                if (settings.verbose > 0)
-//                    fprintf(stderr, "Couldn't update event\n");
-//                conn_set_state(c, conn_closing);
-//                break;
-//            }
+            // No need to update EV_READ because we never change that flag.
             conn_set_state(c, conn_read);
             stop = true;
 #ifdef TIMETRACE
@@ -5850,13 +5790,8 @@ static void* drive_machine(void *vc) {
                        hack we should just put in a request to write data,
                        because that should be possible ;-)
                     */
-//                    if (!update_event(c, EV_WRITE | EV_PERSIST)) {
-//                        if (settings.verbose > 0)
-//                            fprintf(stderr, "Couldn't update event\n");
-//                        conn_set_state(c, conn_closing);
-//                        break;
-//                    }
-                    // XXX Qian: don't use hack, create another thread here to continue the work.
+                    // XXX Qian: don't use hack to update the event type,
+                    // just create another Arachne thread here to continue the work.
 #ifdef ARACHNE_CREATE
                     res = arachne_thread_create(&tid, drive_machine, (void*)c);
                     if (res != 0) {
@@ -5874,7 +5809,6 @@ static void* drive_machine(void *vc) {
                             timetrace_record("[drive_machine] Start in drive machine %d, after yield", c->sfd);
                         }
 #endif
-
                         break;
                     } else {
 #ifdef TIMETRACE
@@ -6002,13 +5936,9 @@ static void* drive_machine(void *vc) {
             }
 
             if (res == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                // XXX Qian: don't need to update the event type.
+                // No data available, just return to dispatch thread.
                 c->finished = true;
-//                if (!update_event(c, EV_READ | EV_PERSIST)) {
-//                    if (settings.verbose > 0)
-//                        fprintf(stderr, "Couldn't update event\n");
-//                    conn_set_state(c, conn_closing);
-//                    break;
-//                }
                 stop = true;
                 break;
             }
@@ -6164,7 +6094,7 @@ static void* drive_machine(void *vc) {
                 break;                   /* Continue in state machine. */
 
             case TRANSMIT_SOFT_ERROR:
-                // stop = true;  // XXX Qian: Just yield, don't stop
+                // stop = true;  // TODO Qian: Just yield/ don't stop?
                 break;
             }
 #ifdef TIMETRACE
@@ -6198,22 +6128,7 @@ static void* drive_machine(void *vc) {
     }
 
     c->finished = true;
-//    if ((c->state == conn_read) || (c->state == conn_new_cmd)
-//         || (c->state == conn_nread)) {
-//        if (!update_event(c, c->ev_flags)) {
-//            if (settings.verbose > 0)
-//                fprintf(stderr, "Couldn't update event\n");
-//            conn_set_state(c, conn_closing);
-//        }
-//    }
-
-    if (settings.verbose > 0) {
-        fprintf(stderr, "finished thread...state: %d \n", c->state);
-    }
-
 #ifdef TIMETRACE
-    // uint64_t end_time = rdtsc();
-    // uint32_t delta_ns = (end_time - start_time) / 2;
     if (record) {
         timetrace_record("[drive_machine] End of drive machine %d", c->sfd);
     }
@@ -6232,7 +6147,7 @@ static void* drive_machine(void *vc) {
 void event_handler(const int fd, const short which, void *arg) {
     conn *c;
     int ret;
-    // handled_event = true; // For utilization count
+    // handled_event = true; // For utilization count, obsolete now.
 
     c = (conn *)arg;
     assert(c != NULL);
@@ -6320,12 +6235,6 @@ void event_handler(const int fd, const short which, void *arg) {
         /* Start Arachne worker thread */
         arachne_thread_id arachne_tid;
         ret = arachne_thread_create(&arachne_tid, drive_machine, (void*)c);
-//        while (ret != 0) {
-//            if (settings.verbose > 0) {
-//                fprintf(stderr, "Failed to create Arachne thread!\n");
-//            }
-//            ret = arachne_thread_create(&arachne_tid, drive_machine, (void*)c);
-//        }
 #ifdef TIMETRACE_HANDLE
         if (record && (thread != NULL) && (ret == 0)) {
             timetrace_record("[event_handler] Finish creating thread in dispatch %d, fd %d",
@@ -7215,8 +7124,6 @@ static int memcached_main () {
  */
 static void* main_wrapper(void *arg) {
     int ret;
-    // ret = arachne_thread_exclusive_core(0);
-    // fprintf(stderr, "Main thread successfully have an exclusive core \n");
     ret = memcached_main();
     if (ret != 0) {
         fprintf(stderr, "Non-zero return code: %d\n", ret);
@@ -8623,14 +8530,6 @@ int main (int argc, char **argv) {
     uriencode_init();
 
     /* Start main dispatch thread */
-    // arachne_thread_id arachne_tid;
-
-    // if (arachne_thread_create(&arachne_tid, main_wrapper, NULL) == -1) {
-    //     fprintf(stderr, "Failed to create Arachne thread!\n");
-    //     retval = EXIT_FAILURE;
-    // } else {
-    //     arachne_wait_termination();
-    // }
     main_wrapper(NULL);
     arachne_wait_termination();
 

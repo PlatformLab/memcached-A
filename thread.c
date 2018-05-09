@@ -294,16 +294,9 @@ static void cqi_free(CQ_ITEM *item) {
  * Creates a worker thread.
  */
 static void create_worker(void *(*func)(void *), void *arg) {
-//    pthread_attr_t  attr;
-//    int             ret;
-//    pthread_t tid;
-
-//    pthread_attr_init(&attr);
-
     /* Use Exclusiv Arachne threads */
     int ret;
     ret = arachne_thread_create_with_class(&((LIBEVENT_THREAD*)arg)->thread_id, func, arg, 1);
-//    ret = pthread_create(&tid, &attr, func, arg);
     if (ret != 0) {
         fprintf(stderr, "Can't create Arachne thread: %s\n", strerror(ret));
         exit(1);
@@ -334,9 +327,8 @@ static void setup_thread(LIBEVENT_THREAD *me) {
 		printf("    %s\n", methods[i]);
 	}
 
+    // Force to use EPOLL
     event_config_set_flag(ev_config, EVENT_BASE_FLAG_NOLOCK);
-	// event_config_require_features(ev_config, EV_FEATURE_ET);
-	// event_config_require_features(ev_config, EV_FEATURE_O1);
     event_config_avoid_method(ev_config, "select");
     event_config_avoid_method(ev_config, "poll");
     me->base = event_base_new_with_config(ev_config);
@@ -481,7 +473,8 @@ static void *worker_libevent(void *arg) {
 
     register_thread_initialized();
 
-    // event_base_loop(me->base, 0);
+    // Theoretically the dispatch thread will never exit the event_base_loop.
+    // This part was intended to use together with non-blocking mode.
     uint64_t cycles_per_sec = 2000000000; // 2.0GHz
     uint64_t prev = rdtsc();
     double active_cycles = 0.0;
@@ -557,7 +550,6 @@ static void thread_libevent_process(int fd, short which, void *arg) {
                         close(item->sfd);
                     }
                 } else {
-                    // c->thread = me;
                     c->thread = NULL; // Will assign thread in Arachne workers
                 }
                 break;
@@ -917,7 +909,7 @@ void memcached_thread_init(int nthreads, void *arg) {
         power = 15;
     }
 
-    /* XXX Qian: hard coded to 13, a reasonable large table */
+    /* XXX Qian: hard coded to 14, a reasonable large table */
     power = 14;
 
     if (power >= hashpower) {
@@ -939,7 +931,6 @@ void memcached_thread_init(int nthreads, void *arg) {
         pthread_mutex_init(&item_locks[i], NULL);
     }
 
-    // threads = calloc(nthreads, sizeof(LIBEVENT_THREAD));
     threads = calloc(nprocs, sizeof(LIBEVENT_THREAD));
     if (! threads) {
         perror("Can't allocate thread descriptors");
