@@ -1,38 +1,49 @@
-# Memcached with Arachne
+# Memcached-A (Under Construction)
 
-Memcached is a high performance multithreaded event-based key/value cache
-store intended to be used in a distributed system.
+## Note
+This repo contains two major branches:
+the original memcached version 1.5.6 (master branch);
+and the memcached-A (restructured memcached with Arachne, memcached-A branch).
 
-See: https://memcached.org/about
+Memcached-A is currently under construction; the unit tests may be failing.
 
-A fun story explaining usage: https://memcached.org/tutorial
+## How do I use Memcached-A?
+0. Clone this repo and switch to memcached-A branch.
+```
+    git clone https://github.com/PlatformLab/memcached.git ${MEMCACHE_DIR}
+    cd ${MEMCACHE_DIR}
+    git fetch
+    git checkout memcached-A
+```
 
-If you're having trouble, try the wiki: https://memcached.org/wiki
+1. Recursively clone [Arachne super repository](https://github.com/PlatformLab/arachne-all)
+inside memcached top level directory.
+```
+     git clone --recursive https://github.com/PlatformLab/arachne-all.git ${MEMCACHE_DIR}
+```
 
-If you're trying to troubleshoot odd behavior or timeouts, see:
-https://memcached.org/timeouts
+2. Build the Arachne library with `./buildAll.sh` in the top level directory.
+```
+    cd arachne-all
+    ./buildAll.sh
+```
 
-https://memcached.org/ is a good resource in general. Please use the mailing
-list to ask questions, github issues aren't seen by everyone!
+3. Build memcached-A in memcached top level directory.
+```
+    ./autogen.sh
+    ./configure --prefix=/PATH/TO/INSTALL/DIR
+    make
+```
 
-## Dependencies
+4. Make sure the core arbiter is running in your system, if not, start it by:
+```
+    sudo ${MEMCACHE_DIR}/arachne-all/CoreArbiter/bin/coreArbiterServer
+```
+You can make it run in background.
 
-* libevent, http://www.monkey.org/~provos/libevent/ (libevent-dev)
-* libseccomp, (optional, linux) - enables process restrictions for better
-  security.
-* Arachne, please follow the instruction in https://github.com/PlatformLab/arachne-all. 
-Then use soft link to link arachne-all under memcached directory.
-## Environment
-
-Be warned that the -k (mlockall) option to memcached might be
-dangerous when using a large cache.  Just make sure the memcached machines
-don't swap.  memcached does non-blocking network I/O, but not disk.  (it
-should never go to disk, or you've lost the whole point of it)
-
-## Website
-
-* http://www.memcached.org
-
-## Contributing
-
-See https://github.com/memcached/memcached/wiki/DevelopmentRepos
+5. Then start memcached-A, here is an example command:
+```
+    ./memcached --minNumCores 2 --maxNumCores 15 -t 1 -c 32768 -m 10240
+```
+This will start a memcached service with 1 dispatch thread, max 32768 connections,
+and 10GB memory.
