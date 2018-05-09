@@ -31,7 +31,7 @@ worker thread.
 1. Recursively clone [Arachne super repository](https://github.com/PlatformLab/arachne-all)
 inside memcached top level directory.
 ```
-     git clone --recursive https://github.com/PlatformLab/arachne-all.git ${MEMCACHE_DIR}
+     git clone --recursive https://github.com/PlatformLab/arachne-all.git ${MEMCACHE_DIR}/arachne-all
 ```
 
 2. Build the Arachne library with `./buildAll.sh` in the top level directory.
