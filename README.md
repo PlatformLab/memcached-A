@@ -12,41 +12,29 @@ Memcached-A is currently under construction; the unit tests may be failing.
 
 ## How do I use Memcached-A?
 0. Clone this repo and switch to memcached-A branch.
-```
+    ```
     git clone https://github.com/PlatformLab/memcached.git ${MEMCACHE_DIR}
     cd ${MEMCACHE_DIR}
     git fetch
     git checkout memcached-A
-```
+    ```
 
-1. Recursively clone [Arachne super repository](https://github.com/PlatformLab/arachne-all)
-inside memcached top level directory.
-```
-     git clone --recursive https://github.com/PlatformLab/arachne-all.git ${MEMCACHE_DIR}/arachne-all
-```
+1. Use the `scripts/prepare.sh` to install Arachne and compile memcached-A
+    ```
+    ./${MEMCACHE_DIR}/scripts/prepare.sh
+    ```
+    It will automatically download Arachne and its dependencies, and build
+    everything for you.
 
-2. Build the Arachne library with `./buildAll.sh` in the top level directory.
-```
-    cd arachne-all
-    ./buildAll.sh
-```
-
-3. Build memcached-A in memcached top level directory.
-```
-    ./autogen.sh
-    ./configure --prefix=/PATH/TO/INSTALL/DIR
-    make
-```
-
-4. Make sure the core arbiter is running in your system, if not, start it by:
-```
+2. Make sure the core arbiter is running in your system, if not, start it by:
+    ```
     sudo ${MEMCACHE_DIR}/arachne-all/CoreArbiter/bin/coreArbiterServer
-```
-You can make it run in background.
+    ```
+    You can make it run in background.
 
-5. Then start memcached-A, here is an example command:
-```
+3. Then start memcached-A, here is an example command:
+    ```
     ./memcached --minNumCores 2 --maxNumCores 15 -t 1 -c 32768 -m 10240
-```
-This will start a memcached service with 1 dispatch thread, max 32768 connections,
-and 10GB memory.
+    ```
+    This will start a memcached service with 1 dispatch thread, max 32768 connections,
+    and 10GB memory.
