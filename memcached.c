@@ -69,7 +69,7 @@
 #endif
 
 #define MEMCACHE_MAXUTIL 0.7
-#define MEMCACHE_LOADFACTOR 2.0
+#define MEMCACHE_LOADFACTOR 1.5
 pthread_key_t corestats_key; // Store per-thread coreStats struct key
 pthread_mutex_t corestats_tid_lock; // For allocating coreStats to each thread
 int corestats_count = 0;
