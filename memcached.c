@@ -5632,9 +5632,10 @@ static void* drive_machine(void *vc) {
             if ((thread->l == NULL) || (thread->lru_bump_buf == NULL)) {
                 abort();
             }
-            // Set thread local corestat
+            // Set thread local corestat, assign name according to Arachne
+            // thread id.
             char namebuff[20];
-            sprintf(namebuff, "w%02d", thread->worker_id);
+            sprintf(namebuff, "w%02d", arachne_thread_getid());
             assign_corestats(namebuff);
 
             int cpuId = sched_getcpu();
@@ -6167,11 +6168,11 @@ void event_handler(const int fd, const short which, void *arg) {
 #endif
 
 #if defined(CORETRACE) || defined(IOCOUNT)
-    coreStats* coreStat = GET_CORESTATS();
     log_corestats();
 #endif
 
 #ifdef IOCOUNT
+    coreStats* coreStat = GET_CORESTATS();
     if ((coreStat != NULL) && (coreStat->libeventEndTime > 0)) {
         coreStat->libeventTotalTime +=
             cycles_to_ms(rdtsc() - coreStat->libeventEndTime);
@@ -6962,10 +6963,13 @@ static void* timetrace_log(void* args) {
 
 // Cleanup all corestats
 static void* corestats_cleanup(void* args) {
-#ifdef IOCOUNT
+#if defined(IOCOUNT) || defined(CORETRACE)
     for (int i = 0; i < corestats_count; ++i) {
         clear_corestats(&corestats[i]);
     }
+#endif
+#ifdef CORETRACE
+    timetrace_record("-----------------CLEANUP CORETRACE---------------------");
 #endif
     return NULL;
 }
@@ -7153,10 +7157,14 @@ void assign_corestats(const char* thread_name) {
 #endif
 }
 
-// Remove corestats, reset counters to 0, except for cpuID
+// Remove corestats, reset counters to 0 for IOCOUNT, reset cpuID for CORETRACE
 void clear_corestats(coreStats* coreStat) {
-#if defined(CORETRACE) || defined(IOCOUNT)
     if (coreStat == NULL) { return; }
+#if defined(CORETRACE)
+    coreStat->cpuID = -1;
+    return;
+#endif
+#if defined(IOCOUNT)
     coreStat->coreChangeCount = 0;
     coreStat->libeventTotalTime = 0;
     coreStat->networkReadTotalTime = 0;
