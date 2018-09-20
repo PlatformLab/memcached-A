@@ -5635,8 +5635,9 @@ static void* drive_machine(void *vc) {
             // Set thread local corestat, assign name according to Arachne
             // thread id.
             char namebuff[20];
-            sprintf(namebuff, "w%02d", arachne_thread_getid());
-            assign_corestats(namebuff);
+            int arachne_thread_id = arachne_thread_getid();
+            sprintf(namebuff, "w%02d", arachne_thread_id);
+            assign_corestats_at_id(namebuff, arachne_thread_id);
 
             int cpuId = sched_getcpu();
             fprintf(stderr, "%s: on core %d \n", namebuff, cpuId);
@@ -7157,6 +7158,25 @@ void assign_corestats(const char* thread_name) {
 #endif
 }
 
+void assign_corestats_at_id(const char* thread_name, const int thread_id) {
+#if defined(CORETRACE) || defined(IOCOUNT)
+	coreStats *coreStat = GET_CORESTATS();
+	if (coreStat != NULL) {
+        return;
+	}
+    pthread_setspecific(corestats_key, &corestats[thread_id]);
+    strcpy(corestats[thread_id].threadName, thread_name);
+    corestats[thread_id].cpuID = -1;
+    pthread_mutex_init(&corestats[thread_id].dispatchMutex, NULL);
+    fprintf(stderr, "Setup core stats %d to thread %s \n", thread_id,
+            thread_name);
+    coreStat = GET_CORESTATS();
+    clear_corestats(coreStat);
+    log_corestats(); // Record the initial core
+#endif
+}
+
+
 // Remove corestats, reset counters to 0 for IOCOUNT, reset cpuID for CORETRACE
 void clear_corestats(coreStats* coreStat) {
     if (coreStat == NULL) { return; }
@@ -8141,11 +8161,11 @@ int main (int argc, char **argv) {
     // Setup corestats
 	pthread_key_create(&corestats_key, NULL);
 	pthread_mutex_init(&corestats_tid_lock, NULL);
-	corestats_count = 0;
 
     nprocs = get_nprocs();
     corestats = calloc(nprocs + 10, sizeof(coreStats));
-
+    // The lower 0~nprocs will be allocated to worker threads.
+	corestats_count = nprocs;
 #ifdef CORETRACE
     assign_corestats("Main");
 #endif

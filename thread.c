@@ -468,8 +468,9 @@ static void *worker_libevent(void *arg) {
 
     // Set thread local corestat, assign name according to Arachne thread id.
     char namebuff[20];
-    sprintf(namebuff, "w%02d", arachne_thread_getid());
-    assign_corestats(namebuff);
+    int arachne_thread_id = arachne_thread_getid();
+    sprintf(namebuff, "w%02d", arachne_thread_id);
+    assign_corestats_at_id(namebuff, arachne_thread_id);
 
     register_thread_initialized();
 

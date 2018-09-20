@@ -799,6 +799,8 @@ enum store_item_type store_item(item *item, int comm, conn *c);
 
 /* Assign core id stats */
 void assign_corestats(const char* thread_name);
+/* Assign core id stats at given thread id */
+void assign_corestats_at_id(const char* thread_name, const int thread_id);
 void log_corestats(void);
 void clear_corestats(coreStats* coreStat);
 void print_corestats(void);
