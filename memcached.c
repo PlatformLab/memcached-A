@@ -128,6 +128,7 @@ static void _get_extstore_cb(void *e, obj_io *io, int ret);
 static inline int _get_extstore(conn *c, item *it, int iovst, int iovcnt);
 #endif
 static void conn_free(conn *c);
+static void handle_arachne_ramp_down(int kernelThreadId, int coreId);
 
 /** exported globals **/
 struct stats stats;
@@ -6970,7 +6971,11 @@ static void* corestats_cleanup(void* args) {
     }
 #endif
 #ifdef CORETRACE
-    timetrace_record("-----------------CLEANUP CORETRACE---------------------");
+    struct timeval now;
+    gettimeofday(&now, NULL);
+    // Because timetrace arguments can only be 32-bit integers, we can only
+    // print time separately.
+    timetrace_record("-----------CLEANUP CORETRACE: Time: tv_sec=%d, tv_usec=%d ----", now.tv_sec, now.tv_usec);
 #endif
     return NULL;
 }
@@ -7242,6 +7247,17 @@ void log_corestats() {
         coreStat->cpuID = cpuId;
         coreStat->coreChangeCount++;
     }
+#endif
+}
+
+// A callback function for Arachne when core goes down.
+void handle_arachne_ramp_down(int kernelThreadId, int coreId) {
+#ifdef CORETRACE
+    // Clear corestats of kernelThreadId.
+    clear_corestats(&corestats[kernelThreadId]);
+    // Print a special message.
+    timetrace_record("CLEANUP: Worker w%02d on core %d going down!",
+        kernelThreadId, coreId);
 #endif
 }
 
@@ -8146,6 +8162,7 @@ int main (int argc, char **argv) {
     // Print the headline
     fprintf(logStream, "TimeInUSecSinceEpoch,Cores\n");
     arachne_set_errorstream(logStream);
+    arachne_set_core_rampdown(handle_arachne_ramp_down);
 
     if (settings.arachne_maxutil > 0 && settings.arachne_loadfactor > 0) {
         fprintf(stderr, "Only maxutil or loadfactor can be used. Please choose one \n");
